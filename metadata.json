@@ -1,0 +1,8 @@
+{
+  "name": "AI Technical Interviewer",
+  "description": "An AI-powered technical interview application that parses resumes, aligns with job descriptions, conducts a multimodal interview, and provides structured evaluation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
