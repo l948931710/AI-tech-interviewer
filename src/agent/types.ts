@@ -9,6 +9,8 @@ export interface WorkExperience {
 
 export interface CandidateInfo {
   name: string;
+  email?: string;
+  jobRole?: string;
   education: string[];
   workExperience: WorkExperience[];
   technicalSkills: string[];
@@ -39,6 +41,7 @@ export interface Claim {
 export interface ResumeAnalysis {
   candidateInfo: CandidateInfo;
   prioritizedClaims: Claim[];
+  jobRoleContext: string;
 }
 
 export interface EvaluationScores {
@@ -54,6 +57,7 @@ export interface TurnEvaluation {
   question: string;
   answer: string;
   turnType?: string;
+  answerStatus?: string;
   notes: string;
 }
 
@@ -81,6 +85,8 @@ export interface InterviewReport {
 }
 
 export interface StructuredInterviewTurn {
+  questionId?: string;
+  timestamp?: string;
   question: string;
   answer: string;
   claimId?: string;
@@ -92,6 +98,7 @@ export interface StructuredInterviewTurn {
 
 export interface NextStep {
   decision: 'FOLLOW_UP' | 'NEXT_CLAIM' | 'END_INTERVIEW' | 'REPEAT_QUESTION';
+  followUpIntent?: 'CLARIFY_GAP' | 'DEEPEN' | 'CHALLENGE';
   answerStatus: 'answered' | 'partial' | 'clarification_request' | 'non_answer';
   nextQuestion: string;
   spokenQuestion: string;
@@ -106,3 +113,5 @@ export interface NextStep {
     evidence: number;
   };
 }
+
+export * from './memory';

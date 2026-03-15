@@ -1,0 +1,31 @@
+[
+  {
+    "id": "case-001",
+    "jd": "Senior Backend Engineer. Must have deep experience building heavily trafficked Node.js microservices and Redis caching layers.",
+    "candidateResume": "Senior Software Engineer. Led architecture for checkout service scaling to 10k RPS. Implemented multi-region Redis cluster resulting in 40ms lower P99 latency.",
+    "targetClaims": [
+      "Led architecture for checkout service scaling to 10k RPS.",
+      "Implemented multi-region Redis cluster resulting in 40ms lower P99 latency."
+    ],
+    "persona": "strong"
+  },
+  {
+    "id": "case-002",
+    "jd": "Senior Backend Engineer. Must have deep experience building heavily trafficked Node.js microservices and Redis caching layers.",
+    "candidateResume": "Senior Software Engineer. Led architecture for checkout service scaling to 10k RPS. Implemented multi-region Redis cluster resulting in 40ms lower P99 latency.",
+    "targetClaims": [
+      "Led architecture for checkout service scaling to 10k RPS.",
+      "Implemented multi-region Redis cluster resulting in 40ms lower P99 latency."
+    ],
+    "persona": "bluffer"
+  },
+  {
+    "id": "case-003",
+    "jd": "Data Engineer. Extensive experience with Spark, Kafka, and handling petabyte-scale data pipelines.",
+    "candidateResume": "Led big data transformation using Apache Spark and structured streaming from Kafka. Reduced batch processing time by 60%.",
+    "targetClaims": [
+      "Led big data transformation using Apache Spark and structured streaming from Kafka."
+    ],
+    "persona": "evasive"
+  }
+]

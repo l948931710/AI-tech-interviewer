@@ -1,0 +1,4 @@
+CaseID,Persona,Turns,FollowUpQ_Score,Detection_Score,NonAnswerCaught,Loop?,Status
+case-001,strong,4,0.75,1,false,false,STRONG_HIRE
+case-002,bluffer,4,1.00,1,true,false,NO_HIRE
+case-003,evasive,1,1.00,1,true,false,NO_HIRE

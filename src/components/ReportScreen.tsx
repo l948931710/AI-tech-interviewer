@@ -1,18 +1,174 @@
-import React from 'react';
-import { InterviewReport, CandidateInfo, NextStep } from '../agent';
-import { CheckCircle, AlertTriangle, Target, Award, ChevronRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { InterviewReport, CandidateInfo, StructuredInterviewTurn } from '../agent';
+import { CheckCircle, AlertTriangle, Target, Award, ChevronRight, Send, Loader2, Download } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { motion } from 'motion/react';
+import emailjs from '@emailjs/browser';
+import { useAudio, generateTTS } from '../voice';
 
 interface ReportScreenProps {
   report: InterviewReport;
   candidateInfo: CandidateInfo;
-  history: { q: string, a: string, evaluation?: NextStep }[];
+  history: StructuredInterviewTurn[];
   onRestart: () => void;
 }
 
 export default function ReportScreen({ report, candidateInfo, history, onRestart }: ReportScreenProps) {
-  
+  const [emailTo, setEmailTo] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendStatus, setSendStatus] = useState<'IDLE' | 'SUCCESS' | 'ERROR'>('IDLE');
+
+  // Replay State
+  const { playTTS, fallbackTTS, stopAudio } = useAudio();
+  const [isPlayingReplay, setIsPlayingReplay] = useState(false);
+  const [currentReplayIndex, setCurrentReplayIndex] = useState<number | null>(null);
+  const [replaySpeaker, setReplaySpeaker] = useState<'AI' | 'CANDIDATE' | null>(null);
+  const isPlayingRef = React.useRef(false);
+
+  // Stop Replay on unmount
+  React.useEffect(() => {
+    return () => {
+      stopAudio();
+    };
+  }, [stopAudio]);
+
+  const toggleReplay = async () => {
+    if (isPlayingReplay) {
+      setIsPlayingReplay(false);
+      isPlayingRef.current = false;
+      setCurrentReplayIndex(null);
+      setReplaySpeaker(null);
+      stopAudio();
+      return;
+    }
+
+    setIsPlayingReplay(true);
+    isPlayingRef.current = true;
+
+    for (let i = 0; i < history.length; i++) {
+      if (!isPlayingRef.current) break;
+      setCurrentReplayIndex(i);
+
+      // Play AI Turn
+      setReplaySpeaker('AI');
+      try {
+        const audioBase64 = await generateTTS(history[i].question);
+        if (!isPlayingRef.current) break;
+        if (audioBase64) {
+          await playTTS(audioBase64);
+        } else {
+          await fallbackTTS(history[i].question); // Fallback if generation fails
+        }
+      } catch (e) {
+        if (isPlayingRef.current) await fallbackTTS(history[i].question);
+      }
+
+      if (!isPlayingRef.current) break;
+
+      // Play Candidate Turn (using Browser Voice to distinguish speaker)
+      setReplaySpeaker('CANDIDATE');
+      if (history[i].answer) {
+         await fallbackTTS(history[i].answer);
+      }
+    }
+
+    if (isPlayingRef.current) {
+      setIsPlayingReplay(false);
+      isPlayingRef.current = false;
+      setCurrentReplayIndex(null);
+      setReplaySpeaker(null);
+    }
+  };
+
+  const generateReportText = () => {
+    let text = `AI Interview Report for ${candidateInfo.name}\n\n`;
+    text += `Overall Score: ${report.overallScore}/100\n`;
+    text += `Recommendation: ${report.overallRecommendation}\n\n`;
+    text += `Summary:\n${report.summary}\n\n`;
+    
+    text += `Strongest Areas:\n`;
+    report.strongestAreas.forEach(a => text += `- ${a}\n`);
+    
+    if (report.riskFlags.length > 0) {
+      text += `\nRisk Flags:\n`;
+      report.riskFlags.forEach(r => text += `- ${r}\n`);
+    }
+    
+    text += `\nClaim Evaluations:\n`;
+    report.claimEvaluations.forEach(c => {
+      text += `\n[${c.verificationStatus.toUpperCase()}] ${c.claimText}\n`;
+      text += `Strengths: ${c.strengths.join(', ')}\n`;
+      text += `Weaknesses: ${c.weaknesses.join(', ')}\n`;
+    });
+
+    return text;
+  };
+
+  const handleDownloadRecord = () => {
+    let fullText = generateReportText();
+    fullText += `\n\n=================================\n`;
+    fullText += `          FULL TRANSCRIPT          \n`;
+    fullText += `=================================\n\n`;
+    
+    history.forEach((turn, i) => {
+      fullText += `[Turn ${i + 1}]\n`;
+      if (turn.claimText) fullText += `Target Claim: ${turn.claimText}\n`;
+      fullText += `AI: ${turn.question}\n`;
+      fullText += `Candidate: ${turn.answer}\n`;
+      if (turn.answerStatus) fullText += `Status: ${turn.answerStatus}\n`;
+      fullText += `\n`;
+    });
+
+    const blob = new Blob([fullText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Interview_Record_${candidateInfo.name.replace(/\s+/g, '_')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSendEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailTo) return;
+    
+    // Check for ENV vars
+    const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+    const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+    const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+    
+    if (!serviceId || !templateId || !publicKey) {
+      alert("EmailJS is not configured. Please add VITE_EMAILJS_SERVICE_ID, VITE_EMAILJS_TEMPLATE_ID, and VITE_EMAILJS_PUBLIC_KEY to your .env.local file.");
+      return;
+    }
+
+    setIsSending(true);
+    setSendStatus('IDLE');
+    
+    try {
+      const messageBody = generateReportText();
+
+      const templateParams = {
+        to_email: emailTo,
+        candidate_name: candidateInfo.name,
+        message: messageBody,
+      };
+
+      await emailjs.send(serviceId, templateId, templateParams, publicKey);
+      setSendStatus('SUCCESS');
+      setEmailTo('');
+      setTimeout(() => setSendStatus('IDLE'), 3000);
+    } catch (err: any) {
+      console.error("Failed to send email", err);
+      setSendStatus('ERROR');
+      alert(`Failed to send email: ${err.text || err.message || 'Unknown error'}`);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   // Calculate average scores across all evaluated claims
   const avgScores = report.claimEvaluations.reduce((acc, evaluation) => {
     if (evaluation.scores) {
@@ -54,6 +210,80 @@ export default function ReportScreen({ report, candidateInfo, history, onRestart
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto space-y-8"
       >
+        {/* Actions Bar */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex flex-col sm:flex-row items-center gap-6">
+          <div className="flex-1 flex flex-col sm:flex-row items-center gap-4 w-full">
+            <div className="flex items-center gap-2 text-gray-600 shrink-0">
+              <Send size={20} className="text-indigo-500" />
+              <span className="font-medium text-sm">Forward Report</span>
+            </div>
+            
+            <form onSubmit={handleSendEmail} className="flex flex-1 w-full gap-2">
+              <input 
+                type="email" 
+                placeholder="Enter HR email..."
+                value={emailTo}
+                onChange={(e) => setEmailTo(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-[200px]"
+                required
+              />
+              <button 
+                type="submit" 
+                disabled={isSending || !emailTo}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2 transition-colors shrink-0"
+              >
+                {isSending ? <Loader2 size={16} className="animate-spin" /> : 'Send'}
+              </button>
+            </form>
+            {sendStatus === 'SUCCESS' && <span className="text-emerald-600 text-sm font-medium flex items-center gap-1 shrink-0"><CheckCircle size={16} /> Sent!</span>}
+          </div>
+
+          <div className="hidden sm:block w-px h-8 bg-gray-200"></div>
+
+          <button
+            onClick={handleDownloadRecord}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 px-5 py-2 rounded-lg text-sm font-bold transition-all shrink-0"
+          >
+            <Download size={18} />
+            Save Record
+          </button>
+        </div>
+
+        {/* Replay Controls bar */}
+        <div className="bg-slate-900 rounded-2xl shadow-lg border border-slate-800 p-4 flex justify-between items-center px-6">
+           <div className="flex items-center gap-4">
+             <button 
+                onClick={toggleReplay}
+                className={`flex items-center justify-center w-12 h-12 rounded-full transition-all ${isPlayingReplay ? 'bg-red-500 hover:bg-red-600 shadow-red-500/20 shadow-lg' : 'bg-indigo-500 hover:bg-indigo-600 shadow-indigo-500/20 shadow-lg'}`}
+             >
+                {isPlayingReplay ? (
+                   <div className="w-4 h-4 rounded-sm bg-white" />
+                ) : (
+                   <div className="w-0 h-0 border-t-8 border-t-transparent border-l-[14px] border-l-white border-b-8 border-b-transparent ml-1" />
+                )}
+             </button>
+             <div>
+               <h3 className="font-bold text-white tracking-wide">Synthesized Replay</h3>
+               <p className="text-sm text-slate-400">
+                 {isPlayingReplay && replaySpeaker === 'AI' ? "🔴 AI Interviewer Speaking..." :
+                  isPlayingReplay && replaySpeaker === 'CANDIDATE' ? "🟢 Candidate Speaking..." :
+                  "Listen to the interview transcript."}
+               </p>
+             </div>
+           </div>
+           
+           {isPlayingReplay && (
+             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-full border border-slate-700">
+                <div className="flex gap-1">
+                  <span className={`w-1 h-3 rounded-full animate-bounce ${replaySpeaker === 'AI' ? 'bg-indigo-400' : 'bg-emerald-400'}`} style={{animationDelay: '0ms'}}></span>
+                  <span className={`w-1 h-3 rounded-full animate-bounce ${replaySpeaker === 'AI' ? 'bg-indigo-400' : 'bg-emerald-400'}`} style={{animationDelay: '150ms'}}></span>
+                  <span className={`w-1 h-3 rounded-full animate-bounce ${replaySpeaker === 'AI' ? 'bg-indigo-400' : 'bg-emerald-400'}`} style={{animationDelay: '300ms'}}></span>
+                </div>
+                <span className="text-xs font-medium text-slate-300 ml-1 uppercase tracking-wider">LIVE</span>
+             </div>
+           )}
+        </div>
+
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div>
@@ -294,40 +524,33 @@ export default function ReportScreen({ report, candidateInfo, history, onRestart
           </div>
           <div className="divide-y divide-gray-100">
             {history.map((turn, index) => (
-              <div key={index} className="p-6 hover:bg-gray-50 transition-colors">
+              <div 
+                key={index} 
+                className={`p-6 transition-colors duration-500 ${currentReplayIndex === index ? 'bg-yellow-50/80' : 'hover:bg-gray-50'}`}
+              >
                 <div className="flex gap-4">
-                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 mt-1">
-                    <span className="text-indigo-600 font-bold text-sm">AI</span>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 transition-colors ${currentReplayIndex === index && replaySpeaker === 'AI' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30' : 'bg-indigo-100 text-indigo-600'}`}>
+                    <span className="font-bold text-sm">AI</span>
                   </div>
                   <div className="flex-1">
-                    <p className="text-gray-900 font-medium">{turn.q}</p>
+                    <p className={`font-medium transition-colors ${currentReplayIndex === index && replaySpeaker === 'AI' ? 'text-indigo-900' : 'text-gray-900'}`}>{turn.question}</p>
                   </div>
                 </div>
                 
                 <div className="flex gap-4 mt-4">
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-1">
-                    <span className="text-emerald-700 font-bold text-sm">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 transition-colors ${currentReplayIndex === index && replaySpeaker === 'CANDIDATE' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-emerald-100 text-emerald-700'}`}>
+                    <span className="font-bold text-sm">
                       {candidateInfo.name.charAt(0)}
                     </span>
                   </div>
                   <div className="flex-1">
-                    <p className="text-gray-700 whitespace-pre-wrap">{turn.a}</p>
+                    <p className={`whitespace-pre-wrap transition-colors ${currentReplayIndex === index && replaySpeaker === 'CANDIDATE' ? 'text-emerald-900 font-medium' : 'text-gray-700'}`}>{turn.answer}</p>
                     
-                    {/* Implicit Lightweight Scores (Debug/Context) */}
-                    {turn.evaluation && turn.evaluation.lightweightScores && (
-                      <details className="mt-3 text-xs text-gray-400 opacity-60 hover:opacity-100 transition-opacity">
-                        <summary className="cursor-pointer font-medium select-none">AI Evaluation (Debug)</summary>
-                        <div className="mt-2 pl-3 border-l-2 border-gray-200 flex flex-col gap-1.5">
-                          <span title="Answer Status">Status: <span className="font-medium text-gray-500">{turn.evaluation.answerStatus}</span></span>
-                          <span title="Reason for next step">{turn.evaluation.decision}: {turn.evaluation.decisionRationale}</span>
-                          {turn.evaluation.missingPoints && turn.evaluation.missingPoints.length > 0 && (
-                            <span title="Missing points">Missing: {turn.evaluation.missingPoints.join(', ')}</span>
-                          )}
-                          {turn.evaluation.coveredPoints && turn.evaluation.coveredPoints.length > 0 && (
-                            <span title="Covered points">Covered: {turn.evaluation.coveredPoints.join(', ')}</span>
-                          )}
-                        </div>
-                      </details>
+                    {/* Implicit Evaluation Status */}
+                    {turn.answerStatus && (
+                      <div className="mt-3 text-xs text-gray-500">
+                        Status: <span className="font-medium text-gray-400">{turn.answerStatus}</span>
+                      </div>
                     )}
                   </div>
                 </div>

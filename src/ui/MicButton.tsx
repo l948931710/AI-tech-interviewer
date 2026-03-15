@@ -1,5 +1,4 @@
 import React from 'react';
-import { Mic, MicOff } from 'lucide-react';
 
 interface MicButtonProps {
   isListening: boolean;
@@ -11,24 +10,18 @@ interface MicButtonProps {
 
 export function MicButton({ isListening, isEvaluating, isAiSpeaking, startListening, stopListening }: MicButtonProps) {
   return (
-    <div className="flex flex-col items-center justify-center gap-4">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={isListening ? stopListening : startListening}
-          disabled={isEvaluating || isAiSpeaking}
-          className={`p-6 rounded-full flex-shrink-0 transition-all ${
-            isListening 
-              ? 'bg-red-500 text-white hover:bg-red-600 shadow-lg shadow-red-500/30 scale-110' 
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          } ${(isEvaluating || isAiSpeaking) ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          {isListening ? <MicOff size={32} /> : <Mic size={32} />}
-        </button>
-      </div>
-      
-      <p className="text-sm text-gray-500">
-        {isListening ? "Listening... We will automatically submit when you stop speaking." : "Click the microphone to start speaking."}
-      </p>
-    </div>
+    <button
+      onClick={isListening ? stopListening : startListening}
+      disabled={isEvaluating || isAiSpeaking}
+      className={`size-14 rounded-full flex items-center justify-center transition-all ${
+        isListening 
+          ? 'bg-primary text-white hover:bg-green-600 shadow-[0_0_15px_rgba(17,212,17,0.4)] scale-110' 
+          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+      } ${(isEvaluating || isAiSpeaking) ? 'opacity-50 cursor-not-allowed' : ''}`}
+    >
+      <span className="material-symbols-outlined" style={{ fontSize: '24px' }}>
+        {isListening ? 'mic' : 'mic_off'}
+      </span>
+    </button>
   );
 }

@@ -1,108 +1,97 @@
 import { Type } from "@google/genai";
 import { getAi, withRetry, MODELS, parseJsonResponse } from "./core";
-import { Claim, NextStep } from "./types";
+import { NextStep, InterviewMemory } from "./types";
 
 export async function getNextInterviewStep(
-  question: string, 
-  answer: string, 
-  currentClaim: Claim, 
-  nextClaim: Claim | null, 
-  jdText: string,
-  history: {q: string, a: string}[],
+  question: string,
+  questionId: string,
+  answer: string,
+  memory: InterviewMemory,
   isLastQuestion: boolean = false,
-  repeatCountForCurrentQuestion: number = 0,
   forceNextClaim: boolean = false,
-  followUpCountForCurrentClaim: number = 0,
-  totalQuestionsAskedForCurrentClaim: number = 0,
   maxFollowUpsPerClaim: number = 2,
-  consecutiveNonAnswers: number = 0,
-  previousAnswerStatus: string | null = null,
-  previouslyMissingPoints: string[] = [],
-  previouslyCoveredPoints: string[] = [],
-  questionsAskedForCurrentClaim: string[] = []
+  minQuestionsPerClaim: number = 2
 ): Promise<NextStep> {
   const ai = getAi();
+
+  const currentClaim = memory.getCurrentClaim()!;
+  const nextClaim = memory.getNextClaim();
+  const flatHistory = memory.getFlatHistory();
+  const { answerStatus: previousAnswerStatus, missingPoints: previouslyMissingPoints, coveredPoints: previouslyCoveredPoints } = memory.getPreviousTurnContext();
   
-  const historyText = history.length > 0 
-    ? history.slice(-2).map(t => `Q: ${t.q}\nA: ${t.a}`).join('\n\n')
+  const repeatCountForCurrentQuestion = memory.getRepeatCountForQuestion(questionId);
+  const followUpCountForCurrentClaim = memory.getFollowUpCountForCurrentClaim();
+  const totalQuestionsAskedForCurrentClaim = memory.getTotalQuestionsForCurrentClaim() + 1; // +1 for the current uncommitted turn
+  const consecutiveNonAnswers = memory.getConsecutiveNonAnswers();
+
+  const historyText = flatHistory.length > 0
+    ? flatHistory.slice(-2).map(t => `Q: ${t.q}\nA: ${t.a}`).join('\n\n')
     : 'None';
 
   const prompt = `
-    You are an expert technical AI interviewer. Your task is to evaluate the candidate's last answer and determine the next step in the interview.
-    
-    Job Description (JD):
-    ${jdText}
-    
-    Current Claim being evaluated: ${currentClaim.claim}
-    Experience/Project Name: ${currentClaim.experienceName || 'Not specified'}
-    Must Verify Points: ${currentClaim.mustVerify?.join(', ') || 'None specified'}
-    Nice-to-Have Points: ${currentClaim.niceToHave?.join(', ') || 'None specified'}
-    Evidence Hints: ${currentClaim.evidenceHints?.join(', ') || 'None specified'}
-    
-    Next Claim to evaluate (if current is satisfied): ${nextClaim?.claim || 'None (End of Interview)'}
-    
-    Recent Context (Last 2 turns):
-    ${historyText}
-    
-    --- Current Claim Progress ---
-    Questions already asked for this claim (including current):
-    ${questionsAskedForCurrentClaim.length > 0 ? questionsAskedForCurrentClaim.map((q, i) => `${i+1}. ${q}`).join('\n') : 'None (First question)'}
-    
-    Previously Covered Points: ${previouslyCoveredPoints.length > 0 ? previouslyCoveredPoints.join(', ') : 'None yet'}
-    Previously Missing Points: ${previouslyMissingPoints.length > 0 ? previouslyMissingPoints.join(', ') : 'N/A'}
-    Previous Answer Status: ${previousAnswerStatus || 'N/A'}
-    ------------------------------
-    
-    Current Question: ${question}
-    Candidate's Answer: ${answer}
-    Repeat Count for Current Question: ${repeatCountForCurrentQuestion}
-    Follow-up Count for Current Claim: ${followUpCountForCurrentClaim}
-    Total Questions Asked for Current Claim: ${totalQuestionsAskedForCurrentClaim}
-    Max Follow-ups Allowed per Claim: ${maxFollowUpsPerClaim}
-    Consecutive Non-Answers so far: ${consecutiveNonAnswers}
-    
-    INSTRUCTIONS:
-    1. Evaluate the Candidate's Answer and determine the 'answerStatus':
-       - 'answered': The candidate provided a substantial answer that directly addresses the question.
-       - 'partial': The candidate answered part of the question but missed key details, or the answer lacked sufficient depth.
-       - 'clarification_request': The candidate clearly indicated they didn't hear, didn't understand, or requested clarification of the current question.
-       - 'non_answer': The candidate completely dodged the question, gave a very short empty answer, said "I don't remember", repeated the JD without substance, or gave an off-topic/nonsense response.
-       
-       Provide lightweight scores (1-10) for relevance, specificity, technical depth, ownership, and evidence based on this single turn.
+    1. Evaluate the Candidate's Answer:
+       - 'answered': Substantial answer directly addressing the question.
+       - 'partial': Answered part of the question but missed key details or lacked depth.
+       - 'clarification_request': Didn't hear or requested clarification.
+       - 'non_answer': Dodged the question, gave an empty answer, or said "I don't remember".
        Provide a 'decisionRationale' (1 sentence) explaining the internal reasoning for the decision.
+       - IMPORTANT: Evaluate the Candidate's Answer against the "Must Verify Points". Identify which points are now fully covered ("coveredPoints") and which ones are still missing or insufficiently explained ("missingPoints").
     
-    2. Identify Missing & Covered Points:
-       - Based on the "Must Verify Points" and "Evidence Hints", list the specific technical details, metrics, or ownership proof that are still missing ('missingPoints').
-       - List the technical details or metrics that have been successfully verified so far ('coveredPoints').
-       
-    3. Determine the Decision:
-       ${forceNextClaim 
-         ? (nextClaim ? `- CRITICAL: You MUST decide NEXT_CLAIM because we have reached the time limit for the current claim.` : `- CRITICAL: You MUST decide END_INTERVIEW because we have reached the time limit for the interview.`)
-         : `- REPEAT_QUESTION: If answerStatus is 'clarification_request' AND Repeat Count for Current Question is 0.
-       - NEXT_CLAIM: If answerStatus is 'non_answer' AND Consecutive Non-Answers so far >= 1 (meaning this is the second non-answer in a row, so we should skip the current claim). Also decide NEXT_CLAIM if the current claim is fully verified and there is a Next Claim.
-       - END_INTERVIEW: If the current claim is fully verified (or skipped due to non-answers) and there is no Next Claim.
-       - FOLLOW_UP: If answerStatus is 'partial', OR if answerStatus is 'non_answer' but it's the first one, OR if answerStatus is 'clarification_request' but Repeat Count is >= 1, OR if there are missing points in the current claim.
+    2. Determine the Decision:
+       ${forceNextClaim
+      ? (nextClaim ? `- CRITICAL: You MUST decide NEXT_CLAIM because we have reached the time limit for the current claim.` : `- CRITICAL: You MUST decide END_INTERVIEW because we have reached the time limit for the interview.`)
+      : `- REPEAT_QUESTION: If answerStatus is 'clarification_request' AND Repeat Count for Current Question is 0.
+       - NEXT_CLAIM: If answerStatus is 'non_answer' AND Consecutive Non-Answers so far >= 1 (meaning this is the second non-answer in a row, so we should skip the current claim).
+       - END_INTERVIEW: If the current claim is skipped due to consecutive non-answers and there is no Next Claim.
+       - FOLLOW_UP: If answerStatus is 'partial', 'answered', OR if answerStatus is 'non_answer' but it's the first one, OR if answerStatus is 'clarification_request' but Repeat Count is >= 1, OR if there are missing points in the current claim.
        
        CRITICAL FOLLOW-UP CONSTRAINTS:
+       - If totalQuestionsAskedForCurrentClaim < ${minQuestionsPerClaim} AND answerStatus is 'answered' or 'partial', you MUST decide FOLLOW_UP to ensure sufficient depth.
        - If followUpCountForCurrentClaim >= ${maxFollowUpsPerClaim}, unless the answer has significantly improved, you MUST prioritize NEXT_CLAIM (or END_INTERVIEW if no next claim).
-       - If you have asked multiple times and still haven't received substantial information, stop pursuing this point and move on.`}
        
-    4. Formulate the Next Question (in Simplified Chinese):
+       If decision is FOLLOW_UP, you MUST specify a 'followUpIntent':
+       - CLARIFY_GAP: If there are 'missingPoints', ask a probing question to explicitly close those gaps.
+       - DEEPEN: If the answer covers all points ('answered'), ask a highly challenging technical question targeting architectural tradeoffs, scale constraints, or "why" choices to cross-examine depth.
+       - CHALLENGE: If the answer covers points but seems superficial, exaggerated, or like a bluff, challenge the authenticity or push them on specific implementation details they glossed over.`}
+       
+    3. Formulate the Next Question (in Simplified Chinese):
        - If REPEAT_QUESTION: 
          * If they didn't hear clearly (repeat): Output the exact same Current Question.
          * If they didn't understand the focus (clarify): Rephrase the Current Question to be clearer and more specific.
        - If FOLLOW_UP: 
-         * If answerStatus is 'non_answer', gently acknowledge it (e.g., "没关系...") and try asking a different, perhaps easier, angle of the current claim.
-         * Otherwise, ask a probing question about the missing points. Explicitly mention the specific experience/project from their resume. Ensure the question aligns with the skills and requirements in the Job Description.
-       - If NEXT_CLAIM: Ask an introductory question about the Next Claim. You MUST include a smooth, natural transition acknowledging that we are moving to a new topic (e.g., "好的，关于这段经历我了解得差不多了。接下来我们聊聊你在 [Company/Project] 的工作..."). Explicitly mention the specific experience/project. Ensure the question aligns with the skills and requirements in the Job Description.
-       - If END_INTERVIEW: Provide a polite closing statement thanking them for their time.
+         * Formulate the question strictly based on the chosen 'followUpIntent' (CLARIFY_GAP, DEEPEN, or CHALLENGE). Explicitly mention the specific experience/project from their resume. Ensure the question aligns with: ${memory.getJobRoleContext()}.
+       - If NEXT_CLAIM: Ask an introductory question about the Next Claim. You MUST include a smooth natural transition.
+       - If END_INTERVIEW: Provide a polite closing statement.
        
-    5. Formulate the Spoken Question (in Simplified Chinese):
-       - Generate a \`spokenQuestion\` which is a concise, conversational version of the \`nextQuestion\` optimized for Text-to-Speech. It must be short to minimize TTS latency, but retain the core meaning. Explicitly mention the specific work or project experience name before asking the question.
+    4. Formulate the Spoken Question (in Simplified Chinese):
+       - Generate a \`spokenQuestion\` optimized for Text-to-Speech (very short, concise).
        
-    CONSTRAINTS FOR NEXT QUESTION:
-    - DO NOT reveal your evaluation to the candidate (no praising, critiquing, or summarizing). Just ask the question directly.
+    CONSTRAINTS:
+    - DO NOT reveal your evaluation to the candidate.
     ${isLastQuestion ? '- CRITICAL: If decision is FOLLOW_UP or NEXT_CLAIM, you MUST start the question with "这是我们今天的最后一个问题" (This is our final question for today).' : '- Do not mention how many questions are left.'}
+    
+    Job Role Context:
+    ${memory.getJobRoleContext()}
+    
+    Current Claim: ${currentClaim.claim} (${currentClaim.experienceName || 'Not specified'})
+    Must Verify Points: ${currentClaim.mustVerify?.join(', ') || 'N/A'}
+    Previously Covered Points: ${previouslyCoveredPoints.join(', ') || 'None'}
+    Remaining Missing Points: ${previouslyMissingPoints.join(', ') || 'All'}
+    
+    INTERVIEW STATE METRICS:
+    - Previous Turn Answer Status: ${previousAnswerStatus || 'N/A'}
+    - Follow-ups Asked for Current Claim: ${followUpCountForCurrentClaim}
+    - Repeat Question Count for Current Question: ${repeatCountForCurrentQuestion}
+    - Consecutive Non-Answers: ${consecutiveNonAnswers}
+    - Total Questions Asked for Current Claim: ${totalQuestionsAskedForCurrentClaim}
+    
+    Next Claim: ${nextClaim?.claim || 'None'}
+    
+    RECENT TRANSCRIPT:
+    ${historyText}
+    
+    Current Question: ${question}
+    Candidate's Answer: ${answer}
   `;
 
   const response = await withRetry(() => ai.models.generateContent({
@@ -113,36 +102,35 @@ export async function getNextInterviewStep(
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          answerStatus: { type: Type.STRING, description: "answered, partial, clarification_request, or non_answer" },
-          decisionRationale: { type: Type.STRING, description: "A 1-sentence internal reasoning for the decision." },
-          missingPoints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of missing technical details, if any." },
-          coveredPoints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of technical details or metrics that have been successfully verified so far." },
-          decision: { type: Type.STRING, description: "FOLLOW_UP, NEXT_CLAIM, REPEAT_QUESTION, or END_INTERVIEW" },
-          nextQuestion: { type: Type.STRING, description: "The actual question or statement to speak to the candidate." },
           spokenQuestion: { type: Type.STRING, description: "A shorter, conversational version of the nextQuestion optimized for TTS." },
-          lightweightScores: {
-            type: Type.OBJECT,
-            properties: {
-              relevance: { type: Type.NUMBER },
-              specificity: { type: Type.NUMBER },
-              technicalDepth: { type: Type.NUMBER },
-              ownership: { type: Type.NUMBER },
-              evidence: { type: Type.NUMBER }
-            },
-            required: ["relevance", "specificity", "technicalDepth", "ownership", "evidence"]
-          }
+          nextQuestion: { type: Type.STRING, description: "The actual question or statement to speak to the candidate." },
+          answerStatus: { type: Type.STRING, description: "answered, partial, clarification_request, or non_answer" },
+          decision: { type: Type.STRING, description: "FOLLOW_UP, NEXT_CLAIM, REPEAT_QUESTION, or END_INTERVIEW" },
+          followUpIntent: { type: Type.STRING, description: "CLARIFY_GAP, DEEPEN, or CHALLENGE (Only if decision is FOLLOW_UP)" },
+          decisionRationale: { type: Type.STRING, description: "A 1-sentence internal reasoning for the decision." },
+          coveredPoints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of Must Verify Points that have been successfully covered by the candidate so far." },
+          missingPoints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of Must Verify Points that are still missing or insufficiently explained." }
         },
-        required: ["answerStatus", "decisionRationale", "missingPoints", "coveredPoints", "decision", "nextQuestion", "spokenQuestion", "lightweightScores"]
+        required: ["spokenQuestion", "nextQuestion", "answerStatus", "decision", "decisionRationale", "coveredPoints", "missingPoints"]
       }
     }
   }));
 
   const parsed = parseJsonResponse<NextStep>(response.text);
-  if (!parsed.missingPoints) {
-    parsed.missingPoints = [];
-  }
-  if (!parsed.coveredPoints) {
-    parsed.coveredPoints = [];
+
+  // Sanitization for missingPoints and coveredPoints
+  const mustVerifyPoints = currentClaim.mustVerify || [];
+  
+  // 1. Ensure they are subsets of mustVerify
+  parsed.coveredPoints = (parsed.coveredPoints || []).filter(p => mustVerifyPoints.includes(p));
+  parsed.missingPoints = (parsed.missingPoints || []).filter(p => mustVerifyPoints.includes(p));
+
+  // 2. Remove conflicts (If a point is in both, remove it from missingPoints)
+  parsed.missingPoints = parsed.missingPoints.filter(p => !parsed.coveredPoints.includes(p));
+
+  // 3. Fallback: if the model returned nothing but there are mustVerify points
+  if (mustVerifyPoints.length > 0 && parsed.coveredPoints.length === 0 && parsed.missingPoints.length === 0) {
+    parsed.missingPoints = [...mustVerifyPoints];
   }
 
   // Deterministic Overrides
@@ -154,24 +142,38 @@ export async function getNextInterviewStep(
     parsed.nextQuestion = question;
     parsed.spokenQuestion = question;
     parsed.decisionRationale = "[Deterministic Override] Candidate requested clarification, repeating the question.";
-  } 
+  }
   // 2. Force Next Claim (Time Limit Reached)
   else if (forceNextClaim && parsed.decision !== 'NEXT_CLAIM' && parsed.decision !== 'END_INTERVIEW') {
     parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW';
     decisionOverridden = true;
     parsed.decisionRationale = "[Deterministic Override] Time limit reached for current claim.";
-  } 
+  }
   // 3. Consecutive Non-Answers
   else if (parsed.answerStatus === 'non_answer' && consecutiveNonAnswers >= 1 && parsed.decision !== 'NEXT_CLAIM' && parsed.decision !== 'END_INTERVIEW') {
     parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW';
     decisionOverridden = true;
     parsed.decisionRationale = "[Deterministic Override] Consecutive non-answers, skipping current claim.";
-  } 
-  // 4. Max Follow-ups Reached
-  else if (followUpCountForCurrentClaim >= maxFollowUpsPerClaim && parsed.decision === 'FOLLOW_UP') {
-    parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW';
+  }
+  // 4. Minimum Questions Floor (Initial + Followups)
+  else if ((parsed.answerStatus === 'partial' || parsed.answerStatus === 'answered') && totalQuestionsAskedForCurrentClaim < minQuestionsPerClaim && (parsed.decision === 'NEXT_CLAIM' || parsed.decision === 'END_INTERVIEW') && !forceNextClaim) {
+    parsed.decision = 'FOLLOW_UP';
     decisionOverridden = true;
-    parsed.decisionRationale = "[Deterministic Override] Max follow-ups reached for current claim.";
+    parsed.decisionRationale = `[Deterministic Override] Minimum ${minQuestionsPerClaim} questions not reached for answered/partial claim.`;
+  }
+  // 5. Max Follow-ups Reached
+  else if (followUpCountForCurrentClaim >= maxFollowUpsPerClaim && parsed.decision === 'FOLLOW_UP') {
+    // Exception: Allow one extra follow-up if there are still critical missing points
+    const hasMissingPoints = (parsed.missingPoints || []).length > 0;
+    const isAtHardCap = followUpCountForCurrentClaim >= maxFollowUpsPerClaim + 1; // absolute max is max + 1
+    
+    if (!hasMissingPoints || isAtHardCap) {
+      parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW';
+      decisionOverridden = true;
+      parsed.decisionRationale = isAtHardCap 
+        ? "[Deterministic Override] Absolute hard cap reached for follow-ups."
+        : "[Deterministic Override] Max follow-ups reached and no missing points left.";
+    }
   } 
   // 5. No Next Claim Available
   else if (!nextClaim && parsed.decision === 'NEXT_CLAIM') {
@@ -187,6 +189,19 @@ export async function getNextInterviewStep(
     parsed.decisionRationale = "[Deterministic Override] Max repeats reached, forcing state to FOLLOW_UP.";
   }
 
+  // Fallback for followUpIntent in case the model failed to output it, or it was overridden to FOLLOW_UP
+  if (parsed.decision === 'FOLLOW_UP' && !parsed.followUpIntent) {
+    if ((parsed.missingPoints || []).length > 0) {
+      parsed.followUpIntent = 'CLARIFY_GAP';
+    } else if (parsed.answerStatus === 'answered') {
+      parsed.followUpIntent = 'DEEPEN';
+    } else if (parsed.answerStatus === 'partial') {
+      parsed.followUpIntent = 'CLARIFY_GAP';
+    } else {
+      parsed.followUpIntent = 'CHALLENGE';
+    }
+  }
+
   if (decisionOverridden) {
     if (parsed.decision === 'NEXT_CLAIM' && nextClaim) {
       const fallbackQ = `好的，关于这点我了解了。接下来我们聊聊你的另一段经历：${nextClaim.experienceName || '相关项目'}。关于“${nextClaim.claim}”，你能详细说说吗？`;
@@ -196,19 +211,27 @@ export async function getNextInterviewStep(
       const fallbackQ = "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！";
       parsed.nextQuestion = fallbackQ;
       parsed.spokenQuestion = fallbackQ;
+    } else if (parsed.decision === 'FOLLOW_UP') {
+      let fallbackQ = "关于你刚才提到的这些，你能再深入分享一些底层的技术细节或者你在这个过程中遇到的最大挑战吗？";
+      
+      if (parsed.followUpIntent === 'CLARIFY_GAP') {
+        const point = parsed.missingPoints?.[0];
+        fallbackQ = point 
+          ? `你刚才还没有讲清楚“${point}”这一点，能结合这段经历再具体说说吗？`
+          : `你能把刚才还没展开的关键技术点再具体补充一下吗？`;
+      } else if (parsed.followUpIntent === 'DEEPEN') {
+        fallbackQ = "你在刚才提到的方案中，如果遇到极为极端的并发或性能瓶颈，你会如何从架构设计层面解决？";
+      } else if (parsed.followUpIntent === 'CHALLENGE') {
+        fallbackQ = "这些听起来很顺利，但在实际落地中一定会有很多推翻重来的时刻。你能分享一个你最初方案彻底失败，然后如何反思并修正的例子吗？";
+      }
+
+      parsed.nextQuestion = fallbackQ;
+      parsed.spokenQuestion = fallbackQ;
     }
   }
 
-  // Hardcode scores to 0 if the answer is a non-answer
-  if (parsed.answerStatus === 'non_answer') {
-    parsed.lightweightScores = {
-      relevance: 0,
-      specificity: 0,
-      technicalDepth: 0,
-      ownership: 0,
-      evidence: 0
-    };
-  }
+  // Fill in empty default logic for properties that were deleted from the schema
+  parsed.lightweightScores = { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 };
 
   return parsed;
 }

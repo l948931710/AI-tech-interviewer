@@ -12,6 +12,7 @@ export async function analyzeResume(resumeContent: string | { inlineData: { data
     2. Convert resume bullets into a MAXIMUM of 5 highly verifiable claims that can be probed during the interview. Focus on ownership, implementation, system design, experimentation, impact metrics, and production deployment.
     3. For each claim, explicitly include the exact 'sourceBullet' from the resume it was derived from, and categorize its 'claimType'.
     4. Rank the extracted claims based on relevance to the target role, technical importance, ambiguity/exaggeration risk, business impact, and interview value. Output a 'rankingSignals' object with 1-10 scores for each of these dimensions.
+    5. Generate a 'jobRoleContext' which is a single, concise 1-sentence summary of the core technical requirements from the Job Description. This will guide the rest of the interview implicitly.
     
     CRITICAL OPTIMIZATION: Keep 'mustVerify', 'niceToHave', and 'evidenceHints' extremely concise (1-2 short bullet points each) to ensure fast processing. Do not extract more than 5 claims.
     
@@ -34,10 +35,13 @@ export async function analyzeResume(resumeContent: string | { inlineData: { data
       responseSchema: {
         type: Type.OBJECT,
         properties: {
+          jobRoleContext: { type: Type.STRING, description: "A single, concise 1-sentence summary of the core technical requirements from the Job Description." },
           candidateInfo: {
             type: Type.OBJECT,
             properties: {
               name: { type: Type.STRING },
+              email: { type: Type.STRING, description: "Extract the candidate's email address if present." },
+              jobRole: { type: Type.STRING, description: "A short 1-3 word title summarizing their current or primary job role." },
               education: { type: Type.ARRAY, items: { type: Type.STRING } },
               workExperience: { 
                 type: Type.ARRAY, 
@@ -89,7 +93,7 @@ export async function analyzeResume(resumeContent: string | { inlineData: { data
             }
           }
         },
-        required: ["candidateInfo", "prioritizedClaims"]
+        required: ["jobRoleContext", "candidateInfo", "prioritizedClaims"]
       }
     }
   }));
@@ -150,6 +154,7 @@ export async function analyzeResume(resumeContent: string | { inlineData: { data
 
   return {
     candidateInfo,
-    prioritizedClaims
+    prioritizedClaims,
+    jobRoleContext: rawData.jobRoleContext || "Software Engineering Role"
   };
 }

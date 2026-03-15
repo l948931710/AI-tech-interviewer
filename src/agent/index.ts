@@ -5,3 +5,4 @@ export * from './questionGenerator';
 export * from './followUpPlanner';
 export * from './lightweightEvaluator';
 export * from './reportGenerator';
+export * from './memory';

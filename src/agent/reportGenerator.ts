@@ -8,8 +8,10 @@ export async function generateReport(history: StructuredInterviewTurn[], claims:
   const historyText = history.map((t, i) => `
 --- Turn ${i + 1} ---
 Type: ${t.turnType || 'unknown'}
+Target Claim ID: ${t.claimId || 'N/A'}
 Target Claim: ${t.claimText || 'N/A'}
 Experience: ${t.experienceName || 'N/A'}
+Answer Status (Agent Evaluated): ${t.answerStatus || 'N/A'}
 Q: ${t.question}
 A: ${t.answer}
 `).join('\n');
@@ -31,10 +33,12 @@ A: ${t.answer}
     4. List missingPoints for the claim (what was not verified or missing).
     5. List specific strengths and weaknesses for the claim based on the candidate's answers.
     6. Provide 1-10 scores across the specified dimensions for the claim overall.
-    7. Under each claim, nest the specific Q&A turns (turnEvaluations) that support your evaluation, along with brief notes on how that specific turn contributed to the claim's evaluation.
-    8. Finally, provide an overall recommendation, an overall score out of 100, a summary, strongest areas, riskFlags (overall), and suggested focus for the next round.
+    7. Under each claim, nest the specific Q&A turns (turnEvaluations) that support your evaluation, along with brief notes on how that specific turn contributed to the claim's evaluation. Make sure to accurately copy the 'answerStatus' for each turn.
+    8. EVALUATION FAIRNESS RULE: Base your core score and verification status primarily on how well the candidate handled the standardized verification rounds (e.g. initial questions and necessary clarifications). Questions intended to DEEPEN or CHALLENGE should be treated as opportunities for bonus points or risk reduction, NOT as baseline penalties. A candidate should not be penalized simply because they faced more follow-up questions.
+    9. Finally, provide an overall recommendation, an overall score out of 100, a summary, strongest areas, riskFlags (overall), and suggested focus for the next round.
+    10. **CRITICAL LOCALIZATION RULE**: All generated text MUST be in Chinese (zh-CN), EXCEPT for the enum values \`verificationStatus\`, \`riskLevel\`, and \`overallRecommendation\` which must strictly remain in English as defined below. Output \`summary\`, \`strongestAreas\`, \`riskFlags\`, \`suggestedNextRoundFocus\`, \`missingPoints\`, \`strengths\`, \`weaknesses\`, and \`notes\` entirely in Chinese.
     
-    RECOMMENDATION GUIDANCE:
+    RECOMMENDATION GUIDANCE (DO NOT TRANSLATE THESE KEYS):
     Use recommendation labels consistently:
     - STRONG_HIRE: strong, credible evidence across most critical claims with low risk
     - HIRE: generally solid evidence with some minor gaps
@@ -97,13 +101,14 @@ A: ${t.answer}
                       question: { type: Type.STRING },
                       answer: { type: Type.STRING },
                       turnType: { type: Type.STRING },
+                      answerStatus: { type: Type.STRING },
                       notes: { type: Type.STRING }
                     },
-                    required: ["question", "answer", "notes"]
+                    required: ["question", "answer", "answerStatus", "notes"]
                   }
                 }
               },
-              required: ["claimText", "verificationStatus", "riskLevel", "missingPoints", "strengths", "weaknesses", "scores", "turnEvaluations"]
+              required: ["claimId", "claimText", "verificationStatus", "riskLevel", "missingPoints", "strengths", "weaknesses", "scores", "turnEvaluations"]
             }
           }
         },
@@ -116,7 +121,8 @@ A: ${t.answer}
 
   // Hardcode scores to 0 if all turns for a claim were 'non_answer'
   parsedReport.claimEvaluations.forEach(evaluation => {
-    const claimTurns = history.filter(t => t.claimText === evaluation.claimText);
+    // Robustly filter utilizing claimId if available, fallback to text
+    const claimTurns = history.filter(t => (t.claimId && evaluation.claimId) ? t.claimId === evaluation.claimId : t.claimText === evaluation.claimText);
     if (claimTurns.length > 0 && claimTurns.every(t => t.answerStatus === 'non_answer')) {
       evaluation.scores = {
         relevance: 0,
