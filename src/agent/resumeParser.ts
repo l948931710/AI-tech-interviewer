@@ -1,9 +1,7 @@
-import { Type } from "@google/genai";
-import { getAi, withRetry, MODELS, parseJsonResponse } from "./core";
+import { callAiBackend, withRetry, MODELS, parseJsonResponse } from "./core";
 import { ResumeAnalysis } from "./types";
 
 export async function analyzeResume(resumeContent: string | { inlineData: { data: string, mimeType: string } }, jdText: string): Promise<ResumeAnalysis> {
-  const ai = getAi();
   const prompt = `
     You are an expert technical recruiter and hiring manager.
     Analyze the following resume and job description.
@@ -27,67 +25,67 @@ export async function analyzeResume(resumeContent: string | { inlineData: { data
     ? prompt 
     : { parts: [resumeContent, { text: prompt }] };
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: MODELS.INTERVIEW,
+  const response = await withRetry(() => callAiBackend(
+    MODELS.INTERVIEW,
     contents,
-    config: {
+    {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
+        type: "OBJECT",
         properties: {
-          jobRoleContext: { type: Type.STRING, description: "A single, concise 1-sentence summary of the core technical requirements from the Job Description." },
+          jobRoleContext: { type: "STRING", description: "A single, concise 1-sentence summary of the core technical requirements from the Job Description." },
           candidateInfo: {
-            type: Type.OBJECT,
+            type: "OBJECT",
             properties: {
-              name: { type: Type.STRING },
-              email: { type: Type.STRING, description: "Extract the candidate's email address if present." },
-              jobRole: { type: Type.STRING, description: "A short 1-3 word title summarizing their current or primary job role." },
-              education: { type: Type.ARRAY, items: { type: Type.STRING } },
+              name: { type: "STRING" },
+              email: { type: "STRING", description: "Extract the candidate's email address if present." },
+              jobRole: { type: "STRING", description: "A short 1-3 word title summarizing their current or primary job role." },
+              education: { type: "ARRAY", items: { type: "STRING" } },
               workExperience: { 
-                type: Type.ARRAY, 
+                type: "ARRAY", 
                 items: { 
-                  type: Type.OBJECT,
+                  type: "OBJECT",
                   properties: {
-                    company: { type: Type.STRING },
-                    title: { type: Type.STRING },
-                    startDate: { type: Type.STRING },
-                    endDate: { type: Type.STRING },
-                    location: { type: Type.STRING },
-                    bullets: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    company: { type: "STRING" },
+                    title: { type: "STRING" },
+                    startDate: { type: "STRING" },
+                    endDate: { type: "STRING" },
+                    location: { type: "STRING" },
+                    bullets: { type: "ARRAY", items: { type: "STRING" } }
                   },
                   required: ["company", "title"]
                 } 
               },
-              technicalSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+              technicalSkills: { type: "ARRAY", items: { type: "STRING" } },
             },
             required: ["name", "education", "workExperience", "technicalSkills"]
           },
           prioritizedClaims: {
-            type: Type.ARRAY,
+            type: "ARRAY",
             items: {
-              type: Type.OBJECT,
+              type: "OBJECT",
               properties: {
-                id: { type: Type.STRING },
-                topic: { type: Type.STRING },
-                claim: { type: Type.STRING },
-                experienceName: { type: Type.STRING, description: "The name of the company, project, or experience this claim belongs to." },
-                sourceBullet: { type: Type.STRING, description: "The exact bullet point from the resume that this claim was derived from." },
-                claimType: { type: Type.STRING, description: "ownership, implementation, system_design, experimentation, impact, deployment, leadership, or domain_knowledge" },
-                mustVerify: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of critical points that MUST be verified for this claim to be considered true (e.g., specific technical implementation details, ownership, metrics)." },
-                niceToHave: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of bonus points that would be nice to verify but are not strictly required." },
-                evidenceHints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Hints on what kind of evidence to look for (e.g., 'Look for specific tools used', 'Look for concrete numbers')." },
+                id: { type: "STRING" },
+                topic: { type: "STRING" },
+                claim: { type: "STRING" },
+                experienceName: { type: "STRING", description: "The name of the company, project, or experience this claim belongs to." },
+                sourceBullet: { type: "STRING", description: "The exact bullet point from the resume that this claim was derived from." },
+                claimType: { type: "STRING", description: "ownership, implementation, system_design, experimentation, impact, deployment, leadership, or domain_knowledge" },
+                mustVerify: { type: "ARRAY", items: { type: "STRING" }, description: "List of critical points that MUST be verified for this claim to be considered true (e.g., specific technical implementation details, ownership, metrics)." },
+                niceToHave: { type: "ARRAY", items: { type: "STRING" }, description: "List of bonus points that would be nice to verify but are not strictly required." },
+                evidenceHints: { type: "ARRAY", items: { type: "STRING" }, description: "Hints on what kind of evidence to look for (e.g., 'Look for specific tools used', 'Look for concrete numbers')." },
                 rankingSignals: {
-                  type: Type.OBJECT,
+                  type: "OBJECT",
                   properties: {
-                    relevanceToRole: { type: Type.NUMBER, description: "Score 1-10" },
-                    technicalImportance: { type: Type.NUMBER, description: "Score 1-10" },
-                    ambiguityRisk: { type: Type.NUMBER, description: "Score 1-10" },
-                    businessImpact: { type: Type.NUMBER, description: "Score 1-10" },
-                    interviewValue: { type: Type.NUMBER, description: "Score 1-10" }
+                    relevanceToRole: { type: "NUMBER", description: "Score 1-10" },
+                    technicalImportance: { type: "NUMBER", description: "Score 1-10" },
+                    ambiguityRisk: { type: "NUMBER", description: "Score 1-10" },
+                    businessImpact: { type: "NUMBER", description: "Score 1-10" },
+                    interviewValue: { type: "NUMBER", description: "Score 1-10" }
                   },
                   required: ["relevanceToRole", "technicalImportance", "ambiguityRisk", "businessImpact", "interviewValue"]
                 },
-                rationale: { type: Type.STRING }
+                rationale: { type: "STRING" }
               },
               required: ["id", "topic", "claim", "sourceBullet", "claimType", "mustVerify", "rankingSignals", "rationale"]
             }
@@ -96,7 +94,7 @@ export async function analyzeResume(resumeContent: string | { inlineData: { data
         required: ["jobRoleContext", "candidateInfo", "prioritizedClaims"]
       }
     }
-  }));
+  ));
 
   const rawData = parseJsonResponse<ResumeAnalysis>(response.text);
 

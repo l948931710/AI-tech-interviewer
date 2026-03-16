@@ -1,5 +1,4 @@
-import { Type } from "@google/genai";
-import { getAi, withRetry, MODELS, parseJsonResponse } from "./core";
+import { callAiBackend, withRetry, MODELS, parseJsonResponse } from "./core";
 import { NextStep, InterviewMemory } from "./types";
 
 export async function getNextInterviewStep(
@@ -12,7 +11,6 @@ export async function getNextInterviewStep(
   maxFollowUpsPerClaim: number = 2,
   minQuestionsPerClaim: number = 2
 ): Promise<NextStep> {
-  const ai = getAi();
 
   const currentClaim = memory.getCurrentClaim()!;
   const nextClaim = memory.getNextClaim();
@@ -94,27 +92,27 @@ export async function getNextInterviewStep(
     Candidate's Answer: ${answer}
   `;
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: MODELS.INTERVIEW,
-    contents: prompt,
-    config: {
+  const response = await withRetry(() => callAiBackend(
+    MODELS.INTERVIEW,
+    prompt,
+    {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
+        type: "OBJECT",
         properties: {
-          spokenQuestion: { type: Type.STRING, description: "A shorter, conversational version of the nextQuestion optimized for TTS." },
-          nextQuestion: { type: Type.STRING, description: "The actual question or statement to speak to the candidate." },
-          answerStatus: { type: Type.STRING, description: "answered, partial, clarification_request, or non_answer" },
-          decision: { type: Type.STRING, description: "FOLLOW_UP, NEXT_CLAIM, REPEAT_QUESTION, or END_INTERVIEW" },
-          followUpIntent: { type: Type.STRING, description: "CLARIFY_GAP, DEEPEN, or CHALLENGE (Only if decision is FOLLOW_UP)" },
-          decisionRationale: { type: Type.STRING, description: "A 1-sentence internal reasoning for the decision." },
-          coveredPoints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of Must Verify Points that have been successfully covered by the candidate so far." },
-          missingPoints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of Must Verify Points that are still missing or insufficiently explained." }
+          spokenQuestion: { type: "STRING", description: "A shorter, conversational version of the nextQuestion optimized for TTS." },
+          nextQuestion: { type: "STRING", description: "The actual question or statement to speak to the candidate." },
+          answerStatus: { type: "STRING", description: "answered, partial, clarification_request, or non_answer" },
+          decision: { type: "STRING", description: "FOLLOW_UP, NEXT_CLAIM, REPEAT_QUESTION, or END_INTERVIEW" },
+          followUpIntent: { type: "STRING", description: "CLARIFY_GAP, DEEPEN, or CHALLENGE (Only if decision is FOLLOW_UP)" },
+          decisionRationale: { type: "STRING", description: "A 1-sentence internal reasoning for the decision." },
+          coveredPoints: { type: "ARRAY", items: { type: "STRING" }, description: "Array of Must Verify Points that have been successfully covered by the candidate so far." },
+          missingPoints: { type: "ARRAY", items: { type: "STRING" }, description: "Array of Must Verify Points that are still missing or insufficiently explained." }
         },
         required: ["spokenQuestion", "nextQuestion", "answerStatus", "decision", "decisionRationale", "coveredPoints", "missingPoints"]
       }
     }
-  }));
+  ));
 
   const parsed = parseJsonResponse<NextStep>(response.text);
 

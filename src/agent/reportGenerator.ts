@@ -1,9 +1,7 @@
-import { Type } from "@google/genai";
-import { getAi, withRetry, MODELS, parseJsonResponse } from "./core";
+import { callAiBackend, withRetry, MODELS, parseJsonResponse } from "./core";
 import { InterviewReport, Claim, StructuredInterviewTurn } from "./types";
 
 export async function generateReport(history: StructuredInterviewTurn[], claims: Claim[]): Promise<InterviewReport> {
-  const ai = getAi();
   
   const historyText = history.map((t, i) => `
 --- Turn ${i + 1} ---
@@ -54,55 +52,55 @@ A: ${t.answer}
     0-39 = poor interview signal
   `;
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: MODELS.REPORT,
-    contents: prompt,
-    config: {
+  const response = await withRetry(() => callAiBackend(
+    MODELS.REPORT,
+    prompt,
+    {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
+        type: "OBJECT",
         properties: {
-          overallRecommendation: { type: Type.STRING, description: "STRONG_HIRE, HIRE, LEAN_HIRE, LEAN_NO_HIRE, NO_HIRE" },
-          overallScore: { type: Type.NUMBER, description: "Overall score from 0 to 100" },
-          summary: { type: Type.STRING },
-          strongestAreas: { type: Type.ARRAY, items: { type: Type.STRING } },
-          riskFlags: { type: Type.ARRAY, items: { type: Type.STRING } },
-          suggestedNextRoundFocus: { type: Type.ARRAY, items: { type: Type.STRING } },
+          overallRecommendation: { type: "STRING", description: "STRONG_HIRE, HIRE, LEAN_HIRE, LEAN_NO_HIRE, NO_HIRE" },
+          overallScore: { type: "NUMBER", description: "Overall score from 0 to 100" },
+          summary: { type: "STRING" },
+          strongestAreas: { type: "ARRAY", items: { type: "STRING" } },
+          riskFlags: { type: "ARRAY", items: { type: "STRING" } },
+          suggestedNextRoundFocus: { type: "ARRAY", items: { type: "STRING" } },
           claimEvaluations: {
-            type: Type.ARRAY,
+            type: "ARRAY",
             items: {
-              type: Type.OBJECT,
+              type: "OBJECT",
               properties: {
-                claimId: { type: Type.STRING },
-                claimText: { type: Type.STRING },
-                experienceName: { type: Type.STRING },
-                verificationStatus: { type: Type.STRING, description: "strong, partial, weak, or unverified" },
-                riskLevel: { type: Type.STRING, description: "low, medium, or high" },
-                missingPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
-                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-                weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+                claimId: { type: "STRING" },
+                claimText: { type: "STRING" },
+                experienceName: { type: "STRING" },
+                verificationStatus: { type: "STRING", description: "strong, partial, weak, or unverified" },
+                riskLevel: { type: "STRING", description: "low, medium, or high" },
+                missingPoints: { type: "ARRAY", items: { type: "STRING" } },
+                strengths: { type: "ARRAY", items: { type: "STRING" } },
+                weaknesses: { type: "ARRAY", items: { type: "STRING" } },
                 scores: {
-                  type: Type.OBJECT,
+                  type: "OBJECT",
                   properties: {
-                    relevance: { type: Type.NUMBER },
-                    specificity: { type: Type.NUMBER },
-                    technicalDepth: { type: Type.NUMBER },
-                    ownership: { type: Type.NUMBER },
-                    evidence: { type: Type.NUMBER },
-                    clarity: { type: Type.NUMBER },
+                    relevance: { type: "NUMBER" },
+                    specificity: { type: "NUMBER" },
+                    technicalDepth: { type: "NUMBER" },
+                    ownership: { type: "NUMBER" },
+                    evidence: { type: "NUMBER" },
+                    clarity: { type: "NUMBER" },
                   },
                   required: ["relevance", "specificity", "technicalDepth", "ownership", "evidence", "clarity"]
                 },
                 turnEvaluations: {
-                  type: Type.ARRAY,
+                  type: "ARRAY",
                   items: {
-                    type: Type.OBJECT,
+                    type: "OBJECT",
                     properties: {
-                      question: { type: Type.STRING },
-                      answer: { type: Type.STRING },
-                      turnType: { type: Type.STRING },
-                      answerStatus: { type: Type.STRING },
-                      notes: { type: Type.STRING }
+                      question: { type: "STRING" },
+                      answer: { type: "STRING" },
+                      turnType: { type: "STRING" },
+                      answerStatus: { type: "STRING" },
+                      notes: { type: "STRING" }
                     },
                     required: ["question", "answer", "answerStatus", "notes"]
                   }
@@ -115,7 +113,7 @@ A: ${t.answer}
         required: ["overallRecommendation", "overallScore", "summary", "strongestAreas", "riskFlags", "suggestedNextRoundFocus", "claimEvaluations"]
       }
     }
-  }), 3, 5000); // Longer delay for pro model
+  ), 3, 5000); // Longer delay for pro model
 
   const parsedReport = parseJsonResponse<InterviewReport>(response.text);
 

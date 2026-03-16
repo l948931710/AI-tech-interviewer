@@ -58,35 +58,17 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    setSessions(db.listSessions());
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'ai_tech_interviewer_sessions' && e.newValue) {
-        const newSessionsDict = JSON.parse(e.newValue) as Record<string, InterviewSession>;
-        const newSessionsList = Object.values(newSessionsDict).sort((a, b) => b.createdAt - a.createdAt);
-        
-        setSessions(prev => {
-          newSessionsList.forEach(newSess => {
-            const oldSess = prev.find(p => p.id === newSess.id);
-            if (oldSess && oldSess.status === 'PENDING' && newSess.status === 'IN_PROGRESS') {
-              setToastMessage({
-                title: "Interview Started",
-                message: `${newSess.candidateInfo.name} has entered the interview portal.`
-              });
-            } else if (oldSess && (oldSess.status === 'PENDING' || oldSess.status === 'IN_PROGRESS') && newSess.status === 'COMPLETED') {
-              setToastMessage({
-                title: "Interview Completed",
-                message: `${newSess.candidateInfo.name} has finished. Report is ready.`
-              });
-            }
-          });
-          return newSessionsList;
-        });
-      }
+    const loadSessions = async () => {
+      const data = await db.listSessions();
+      setSessions(data);
     };
+    
+    loadSessions();
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    // In a real app with Supabase, you would use Realtime subscriptions here.
+    // For now, we poll every 15 seconds to simulate live updates since local storage events no longer fire across tabs.
+    const interval = setInterval(loadSessions, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { getAi, MODELS } from "../agent/core";
+import { callAiBackend, MODELS } from "../agent/core";
 import { PersonaType } from "./metrics";
 import fs from "fs";
 import path from "path";
@@ -37,13 +37,11 @@ The Interviewer asks you:
 Respond directly to the interviewer in the exact style of your persona. Do not break character. Do not include action text like '*sighs*'. Just output your dialogue response.
 `;
 
-  const ai = getAi();
-  
   try {
-    const response = await ai.models.generateContent({
-      model: MODELS.INTERVIEW,
-      contents: prompt,
-    });
+    const response = await callAiBackend(
+      MODELS.INTERVIEW,
+      prompt
+    );
     
     // Naive token estimation: ~4 chars per token
     const estimatedTokens = Math.ceil((prompt.length + (response.text?.length || 0)) / 4);

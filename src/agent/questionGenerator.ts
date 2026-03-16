@@ -1,9 +1,7 @@
-import { Type } from "@google/genai";
-import { getAi, withRetry, MODELS, parseJsonResponse } from "./core";
+import { callAiBackend, withRetry, MODELS, parseJsonResponse } from "./core";
 import { CandidateInfo, Claim } from "./types";
 
 export async function generateFirstQuestion(candidateInfo: CandidateInfo, firstClaim: Claim, jdText: string): Promise<{ question: string, spokenQuestion: string, rationale: string }> {
-  const ai = getAi();
   const prompt = `
     You are an expert technical AI interviewer.
     Generate the first deep-dive technical interview question for the candidate.
@@ -28,22 +26,22 @@ export async function generateFirstQuestion(candidateInfo: CandidateInfo, firstC
     IMPORTANT: Generate a \`spokenQuestion\` which is a concise, conversational version of the \`question\` optimized for Text-to-Speech. It must include the transition but keep the actual question part short to minimize TTS latency.
   `;
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: MODELS.INTERVIEW,
-    contents: prompt,
-    config: {
+  const response = await withRetry(() => callAiBackend(
+    MODELS.INTERVIEW,
+    prompt,
+    {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
+        type: "OBJECT",
         properties: {
-          question: { type: Type.STRING },
-          spokenQuestion: { type: Type.STRING, description: "A shorter, conversational version of the question optimized for TTS." },
-          rationale: { type: Type.STRING }
+          question: { type: "STRING" },
+          spokenQuestion: { type: "STRING", description: "A shorter, conversational version of the question optimized for TTS." },
+          rationale: { type: "STRING" }
         },
         required: ["question", "spokenQuestion", "rationale"]
       }
     }
-  }));
+  ));
 
   return parseJsonResponse<{ question: string, spokenQuestion: string, rationale: string }>(response.text);
 }

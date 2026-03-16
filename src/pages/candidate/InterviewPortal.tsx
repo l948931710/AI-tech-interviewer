@@ -51,46 +51,49 @@ export default function InterviewPortal() {
   const firstQuestionAudioPromiseRef = useRef<Promise<string | null> | null>(null);
 
   useEffect(() => {
-    if (id) {
-      const loadSession = db.getSession(id);
-      if (!loadSession) {
-        alert("Invalid Interview Link");
-        return;
-      }
-      if (loadSession.status === 'COMPLETED') {
-        navigate('/thank-you', { replace: true });
-        return;
-      }
-
-      // Check for 24-hour expiration on PENDING sessions
-      if (loadSession.status === 'PENDING') {
-        const _24HOURS = 24 * 60 * 60 * 1000;
-        if (Date.now() - loadSession.createdAt > _24HOURS) {
-          alert('This interview link has expired (valid for 24 hours only).');
-          navigate('/', { replace: true });
+    const loadSessionData = async () => {
+      if (id) {
+        const loadSession = await db.getSession(id);
+        if (!loadSession) {
+          alert("Invalid Interview Link");
           return;
         }
-      }
-      
-      setSession(loadSession);
-      const mem = new InterviewMemory(loadSession.claims, loadSession.jobRoleContext);
-      setMemory(mem);
-      
-      // Pre-fetch first question silently
-      const firstClaim = loadSession.claims[0];
-      if (firstClaim) {
-        firstQuestionPromiseRef.current = generateFirstQuestion(loadSession.candidateInfo, firstClaim, loadSession.jdText);
-        firstQuestionPromiseRef.current
-          .then(res => {
-            setFirstQuestionCache(res.question);
-            setFirstSpokenQuestionCache(res.spokenQuestion);
-            firstQuestionAudioPromiseRef.current = generateTTS(res.spokenQuestion || res.question);
-          })
-          .catch(e => console.error("Failed to pre-fetch first question", e));
-      }
+        if (loadSession.status === 'COMPLETED') {
+          navigate('/thank-you', { replace: true });
+          return;
+        }
 
-      setAppState('READY');
-    }
+        // Check for 24-hour expiration on PENDING sessions
+        if (loadSession.status === 'PENDING') {
+          const _24HOURS = 24 * 60 * 60 * 1000;
+          if (Date.now() - loadSession.createdAt > _24HOURS) {
+            alert('This interview link has expired (valid for 24 hours only).');
+            navigate('/', { replace: true });
+            return;
+          }
+        }
+        
+        setSession(loadSession);
+        const mem = new InterviewMemory(loadSession.claims, loadSession.jobRoleContext);
+        setMemory(mem);
+        
+        // Pre-fetch first question silently
+        const firstClaim = loadSession.claims[0];
+        if (firstClaim) {
+          firstQuestionPromiseRef.current = generateFirstQuestion(loadSession.candidateInfo, firstClaim, loadSession.jdText);
+          firstQuestionPromiseRef.current
+            .then(res => {
+              setFirstQuestionCache(res.question);
+              setFirstSpokenQuestionCache(res.spokenQuestion);
+              firstQuestionAudioPromiseRef.current = generateTTS(res.spokenQuestion || res.question);
+            })
+            .catch(e => console.error("Failed to pre-fetch first question", e));
+        }
+
+        setAppState('READY');
+      }
+    };
+    loadSessionData();
   }, [id, navigate]);
 
   // Handle page closure / refresh
@@ -128,7 +131,7 @@ export default function InterviewPortal() {
     if (!session || !id) return;
     
     // Trigger live HR dashboard notification
-    db.startSession(id);
+    await db.startSession(id);
     setSessionStartTime(Date.now());
 
     const firstName = session.candidateInfo.name.split(' ')[0];

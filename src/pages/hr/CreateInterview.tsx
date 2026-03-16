@@ -21,7 +21,7 @@ export default function CreateInterview() {
       }
 
       // Instead of starting the interview, we save it to the DB
-      const sessionId = db.createSession({
+      const sessionId = await db.createSession({
         jdText: jd,
         jobRoleContext: analysis.jobRoleContext,
         candidateInfo: analysis.candidateInfo,

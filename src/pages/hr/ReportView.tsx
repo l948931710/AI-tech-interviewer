@@ -10,15 +10,18 @@ export default function ReportView() {
   const [session, setSession] = useState<InterviewSession | null>(null);
 
   useEffect(() => {
-    if (id) {
-      const loadSession = db.getSession(id);
-      if (loadSession) {
-        setSession(loadSession);
-      } else {
-        alert("Session not found");
-        navigate('/hr');
+    const loadSessionData = async () => {
+      if (id) {
+        const loadSession = await db.getSession(id);
+        if (loadSession) {
+          setSession(loadSession);
+        } else {
+          alert("Session not found");
+          navigate('/hr');
+        }
       }
-    }
+    };
+    loadSessionData();
   }, [id, navigate]);
 
   if (!session) return <div>Loading...</div>;
