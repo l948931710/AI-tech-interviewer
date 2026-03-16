@@ -18,8 +18,10 @@ export async function* generateTTSStream(text: string): AsyncGenerator<string, v
       }
     );
 
-    // AI backend proxy responds with text that we assume contains the base64 string because we removed parsing layers.
-    if (response.text) {
+    // AI backend proxy responds with base64 encoded audio in inlineData (parsed as audioData)
+    if ((response as any).audioData) {
+       yield (response as any).audioData;
+    } else if (response.text) {
        yield response.text; 
     }
   } catch (error: any) {
@@ -47,7 +49,7 @@ export async function generateTTS(text: string): Promise<string | null> {
       }
     ), 1);
 
-    return response.text || null;
+    return (response as any).audioData || response.text || null;
   } catch (error: any) {
     const errorStr = typeof error === 'object' ? JSON.stringify(error) : String(error);
     // Only log non-quota errors, since quota errors are expected and handled by the browser fallback

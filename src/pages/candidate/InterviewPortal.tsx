@@ -42,7 +42,7 @@ export default function InterviewPortal() {
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isPreparingAudio, setIsPreparingAudio] = useState(false);
-  const { playTTSStream, fallbackTTS, playTTS } = useAudio();
+  const { playTTSStream, fallbackTTS, playTTS, stopAudio } = useAudio();
   
   // Pre-fetching caches
   const [firstQuestionCache, setFirstQuestionCache] = useState<string | null>(null);
@@ -372,6 +372,7 @@ export default function InterviewPortal() {
   };
 
   const handleEndSession = async () => {
+    stopAudio();
     if (memory && id) {
       const isActuallyFinished = memory.getIsInterviewEnded();
       if (isActuallyFinished) {

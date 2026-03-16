@@ -5,6 +5,7 @@ export async function POST(req: Request) {
 
   try {
     const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    console.log(`=== GEMINI_API_KEY Loaded: ${apiKey ? apiKey.substring(0, 4) + '...' : 'NONE'} ===`);
     
     if (!apiKey) {
       console.error("FATAL: GEMINI_API_KEY is completely missing from process.env!");

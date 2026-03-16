@@ -25,9 +25,11 @@ export async function callAiBackend(model: string, contents: any, config?: any) 
   }
 
   const json = await response.json();
+  const part = json.candidates?.[0]?.content?.parts?.[0];
   // mimic SDK payload structure back to parsing logic
   return {
-     text: json.candidates?.[0]?.content?.parts?.[0]?.text || ''
+     text: part?.text || '',
+     audioData: part?.inlineData?.data || null
   };
 }
 
