@@ -13,49 +13,89 @@ export default defineConfig(({mode}) => {
       react(), 
       tailwindcss(),
       {
-        name: 'local-api-generate',
+        name: 'local-api-routes',
         configureServer(server) {
-          server.middlewares.use('/api/generate', async (req, res) => {
-            if (req.method === 'POST') {
-              try {
-                let body = '';
-                for await (const chunk of req) {
-                  body += chunk;
-                }
-                const { POST } = await server.ssrLoadModule('/api/generate.ts');
-                
-                try {
-                  const localEnv = dotenv.parse(fs.readFileSync('.env.local'));
-                  if (localEnv.GEMINI_API_KEY) {
-                    process.env.GEMINI_API_KEY = localEnv.GEMINI_API_KEY;
-                  }
-                } catch (err) {
-                  // ignore if file not found
-                }
-                
-                const fetchReq = new Request(`http://${req.headers.host}${req.url}`, {
-                  method: 'POST',
-                  headers: Object.fromEntries(Object.entries(req.headers)) as any,
-                  body
-                });
-                
-                const fetchRes = await POST(fetchReq);
-                res.statusCode = fetchRes.status;
-                fetchRes.headers.forEach((val, key) => {
-                  res.setHeader(key, val);
-                });
-                const responseText = await fetchRes.text();
-                res.end(responseText);
-              } catch (e: any) {
-                console.error("Local API Generate Proxy Error:", e);
-                res.statusCode = 500;
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ error: e.message || "Internal server error" }));
+          // Read .env.local ONCE at server startup, not per-request
+          let envLoaded = false;
+          function ensureEnv() {
+            if (envLoaded) return;
+            try {
+              const localEnv = dotenv.parse(fs.readFileSync('.env.local'));
+              if (localEnv.GEMINI_API_KEY) {
+                process.env.GEMINI_API_KEY = localEnv.GEMINI_API_KEY;
               }
-            } else {
+            } catch (err) {
+              // ignore if file not found
+            }
+            envLoaded = true;
+          }
+
+          // Helper: read full request body
+          async function readBody(req: any): Promise<string> {
+            let body = '';
+            for await (const chunk of req) {
+              body += chunk;
+            }
+            return body;
+          }
+
+          // Helper: proxy a POST request to a Vercel-style API handler
+          async function proxyToHandler(req: any, res: any, handlerPath: string) {
+            if (req.method !== 'POST') {
               res.statusCode = 405;
               res.end('Method Not Allowed');
+              return;
             }
+            try {
+              ensureEnv();
+              const body = await readBody(req);
+              const { POST } = await server.ssrLoadModule(handlerPath);
+              const fetchReq = new Request(`http://${req.headers.host}${req.url}`, {
+                method: 'POST',
+                headers: Object.fromEntries(Object.entries(req.headers)) as any,
+                body
+              });
+
+              const fetchRes = await POST(fetchReq);
+              res.statusCode = fetchRes.status;
+              fetchRes.headers.forEach((val: string, key: string) => {
+                res.setHeader(key, val);
+              });
+
+              // For SSE streaming responses, pipe the body as a stream
+              if (fetchRes.headers.get('Content-Type')?.includes('text/event-stream') && fetchRes.body) {
+                const reader = fetchRes.body.getReader();
+                const pump = async () => {
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                      res.end();
+                      return;
+                    }
+                    res.write(value);
+                  }
+                };
+                await pump();
+              } else {
+                const responseText = await fetchRes.text();
+                res.end(responseText);
+              }
+            } catch (e: any) {
+              console.error(`Local API Proxy Error (${handlerPath}):`, e);
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: e.message || "Internal server error" }));
+            }
+          }
+
+          // Route: /api/generate (LLM evaluation, non-streaming)
+          server.middlewares.use('/api/generate', (req, res) => {
+            proxyToHandler(req, res, '/api/generate.ts');
+          });
+
+          // Route: /api/tts-stream (TTS audio, SSE streaming)
+          server.middlewares.use('/api/tts-stream', (req, res) => {
+            proxyToHandler(req, res, '/api/tts-stream.ts');
           });
         }
       }

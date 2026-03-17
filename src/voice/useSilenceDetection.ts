@@ -28,13 +28,14 @@ export function useSilenceDetection(
     if (isListening && fullText) {
       const endsWithPunctuation = /[.!?。！？]$/.test(fullText);
       
+      // Reduced timeouts for snappier feel.
       // If the browser still thinks speech is happening (e.g. background noise), 
       // we wait a bit longer to be safe, but we STILL submit eventually to prevent getting stuck.
-      let timeoutDuration = 4000;
+      let timeoutDuration = 2500;
       if (endsWithPunctuation) {
-        timeoutDuration = isSpeechDetected ? 1500 : 500;
+        timeoutDuration = isSpeechDetected ? 800 : 400;
       } else {
-        timeoutDuration = isSpeechDetected ? 5000 : 3000;
+        timeoutDuration = isSpeechDetected ? 2500 : 1800;
       }
       
       timeoutId = setTimeout(() => {
@@ -51,12 +52,12 @@ export function useSilenceDetection(
       if (silenceLevel === 0) {
         timeoutId = setTimeout(() => {
           setSilenceLevel(1);
-        }, 5000);
+        }, 4000);
       } else if (silenceLevel === 1) {
         timeoutId = setTimeout(() => {
           setSilenceLevel(2);
           onSilenceTimeoutRef.current('voice');
-        }, 5000);
+        }, 4000);
       } else if (silenceLevel === 2) {
         timeoutId = setTimeout(() => {
           onSilenceTimeoutRef.current('skip');

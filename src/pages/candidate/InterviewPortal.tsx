@@ -113,12 +113,28 @@ export default function InterviewPortal() {
   const speakQuestion = async (text: string) => {
     setIsPreparingAudio(true);
     try {
-      const audioStream = generateTTSStream(text);
-      await playTTSStream(audioStream, () => {
-        setIsPreparingAudio(false);
-        setIsAiSpeaking(true);
+      // Safety timeout: abort if no audio chunk arrives within 15s.
+      // Once playback starts, the timeout is cancelled so it never interrupts mid-speech.
+      let cancelTimeout: () => void;
+      const timeoutPromise = new Promise<void>((_, reject) => {
+        const id = setTimeout(() => reject(new Error('TTS timeout')), 15000);
+        cancelTimeout = () => clearTimeout(id);
       });
+
+      await Promise.race([
+        (async () => {
+          const audioStream = generateTTSStream(text);
+          await playTTSStream(audioStream, () => {
+            cancelTimeout!(); // First chunk arrived — cancel the timeout
+            setIsPreparingAudio(false);
+            setIsAiSpeaking(true);
+          });
+        })(),
+        timeoutPromise
+      ]);
     } catch (error) {
+      console.warn("TTS streaming failed or timed out, using browser fallback:", error);
+      stopAudio(); // Stop any partially-playing audio before fallback
       setIsPreparingAudio(false);
       setIsAiSpeaking(true);
       await fallbackTTS(text);
@@ -326,6 +342,13 @@ export default function InterviewPortal() {
 
       updatedMemory.determineStatusAndAdvance(nextStep.decision);
       
+      // PIPELINE OVERLAP: Fire TTS generation BEFORE state updates.
+      // generateTTSStream opens the SSE connection immediately, so the server
+      // starts generating audio while we're doing the fast in-memory state updates below.
+      const textToSpeak = nextStep.spokenQuestion || nextStep.nextQuestion;
+      const audioStream = generateTTSStream(textToSpeak);
+      
+      // State updates (fast, ~1ms) — happen while TTS is already generating on the server
       setMemory(updatedMemory);
       setCurrentTurnType(nextTurnType);
       setCurrentQuestionId(crypto.randomUUID());
@@ -333,7 +356,20 @@ export default function InterviewPortal() {
       syncTranscript(updatedMemory);
       setIsEvaluating(false);
       
-      await speakQuestion(nextStep.spokenQuestion || nextStep.nextQuestion);
+      // Now play the audio stream (first chunks may already be available)
+      setIsPreparingAudio(true);
+      try {
+        await playTTSStream(audioStream, () => {
+          setIsPreparingAudio(false);
+          setIsAiSpeaking(true);
+        });
+      } catch (error) {
+        setIsPreparingAudio(false);
+        setIsAiSpeaking(true);
+        await fallbackTTS(textToSpeak);
+      }
+      setIsPreparingAudio(false);
+      setIsAiSpeaking(false);
 
     } catch (error) {
       console.error("Evaluation failed", error);

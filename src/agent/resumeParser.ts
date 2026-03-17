@@ -13,7 +13,8 @@ export async function analyzeResume(resumeContent: string | { inlineData: { data
     5. Generate a 'jobRoleContext' which is a single, concise 1-sentence summary of the core technical requirements from the Job Description. This will guide the rest of the interview implicitly.
     
     CRITICAL OPTIMIZATION: Keep 'mustVerify', 'niceToHave', and 'evidenceHints' extremely concise (1-2 short bullet points each) to ensure fast processing. Do not extract more than 5 claims.
-    
+    CRITICAL LOCALIZATION RULE: All extracted fields (claim, topic, mustVerify, niceToHave, evidenceHints, rationale, jobRoleContext) MUST be kept in the same language as the original Resume. Do not translate them into another language.
+
     Job Description:
     ${jdText}
     

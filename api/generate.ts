@@ -1,22 +1,25 @@
 import { GoogleGenAI } from "@google/genai";
 
+// Cache SDK instance at module level to avoid re-initialization overhead per request.
+// The API key is read from process.env (Vercel env vars) — never exposed to the client.
+let cachedAI: GoogleGenAI | null = null;
+
+export function getAI(): GoogleGenAI {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API Key not configured on server. Please check Vercel Environment Variables.");
+  }
+  if (!cachedAI) {
+    cachedAI = new GoogleGenAI({ apiKey });
+  }
+  return cachedAI;
+}
+
 export async function POST(req: Request) {
   console.log("=== API/GENERATE TRIGGERED ===");
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-    console.log(`=== GEMINI_API_KEY Loaded: ${apiKey ? apiKey.substring(0, 4) + '...' : 'NONE'} ===`);
-    
-    if (!apiKey) {
-      console.error("FATAL: GEMINI_API_KEY is completely missing from process.env!");
-      return new Response(JSON.stringify({ error: "API Key not configured on server. Please check Vercel Environment Variables." }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-
-    // Initialize SDK on the secure backend
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = getAI();
     const body = await req.json();
 
     const { model, contents, config } = body;
