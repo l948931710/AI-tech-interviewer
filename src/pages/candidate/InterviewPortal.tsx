@@ -113,11 +113,13 @@ export default function InterviewPortal() {
   const speakQuestion = async (text: string) => {
     setIsPreparingAudio(true);
     try {
-      // Safety timeout: abort if no audio chunk arrives within 15s.
+      // Safety timeout: abort if no audio chunk arrives within 30s.
+      // Vercel Edge Functions have a 30s limit; cold start + Gemini TTS
+      // generation can take 10-20s on first request.
       // Once playback starts, the timeout is cancelled so it never interrupts mid-speech.
       let cancelTimeout: () => void;
       const timeoutPromise = new Promise<void>((_, reject) => {
-        const id = setTimeout(() => reject(new Error('TTS timeout')), 15000);
+        const id = setTimeout(() => reject(new Error('TTS timeout')), 30000);
         cancelTimeout = () => clearTimeout(id);
       });
 

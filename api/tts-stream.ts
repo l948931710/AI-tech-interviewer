@@ -1,12 +1,35 @@
-import { getAI } from "./generate";
+import { GoogleGenAI } from "@google/genai";
 
 /**
  * Streaming TTS endpoint using Server-Sent Events (SSE).
- * Uses Gemini's generateContentStream to progressively send audio chunks
- * so the client can start playing audio before the full response is ready.
+ * 
+ * Runs on Vercel **Edge Runtime** for:
+ *  - Native streaming / SSE support (no buffering)
+ *  - 30 s execution limit (vs 10 s for Serverless on the free plan)
+ *  - Faster cold starts
+ * 
+ * Self-contained (doesn't import from generate.ts) to avoid
+ * cross-runtime bundling issues between Edge and Node functions.
  * 
  * API key stays server-side (Vercel env vars) — never exposed to the client.
  */
+
+// Tell Vercel to deploy this function on the Edge Runtime
+export const config = { runtime: 'edge' };
+
+// Module-level SDK cache (persists across warm invocations)
+let cachedAI: GoogleGenAI | null = null;
+function getAI(): GoogleGenAI {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY not configured. Check Vercel Environment Variables.");
+  }
+  if (!cachedAI) {
+    cachedAI = new GoogleGenAI({ apiKey });
+  }
+  return cachedAI;
+}
+
 export async function POST(req: Request) {
   try {
     const ai = getAI();
@@ -18,6 +41,8 @@ export async function POST(req: Request) {
         headers: { "Content-Type": "application/json" }
       });
     }
+
+    console.log(`[TTS-Stream] Generating audio for ${text.length} chars, voice=${voiceName || 'Kore'}`);
 
     const streamResponse = await ai.models.generateContentStream({
       model: "gemini-2.5-flash-preview-tts",
@@ -36,16 +61,19 @@ export async function POST(req: Request) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
+          let chunkCount = 0;
           for await (const chunk of streamResponse) {
             const audioData = chunk.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
             if (audioData) {
+              chunkCount++;
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ audioData })}\n\n`));
             }
           }
+          console.log(`[TTS-Stream] Finished: sent ${chunkCount} audio chunks`);
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         } catch (e: any) {
-          // Send the error as an SSE event so the client can handle it gracefully
+          console.error("[TTS-Stream] Stream iteration error:", e);
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: e.message || "Stream error" })}\n\n`));
           controller.close();
         }
@@ -62,7 +90,7 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error("TTS Stream Error:", error);
+    console.error("[TTS-Stream] Fatal error:", error);
     return new Response(JSON.stringify({ error: error.message || "Internal Server Error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" }
