@@ -119,7 +119,7 @@ export default function Dashboard() {
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'dashboard' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
           >
             <LayoutDashboard size={20} />
-            Dashboard
+            控制台
           </button>
           
           <button 
@@ -127,7 +127,7 @@ export default function Dashboard() {
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'candidates' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
           >
             <Users size={20} />
-            Candidates
+            候选人
           </button>
           
           <button 
@@ -135,7 +135,7 @@ export default function Dashboard() {
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'reports' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
           >
             <FileText size={20} />
-            Reports
+            评估报告
             {reportsReady > 0 && (
               <span className="ml-auto bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs">{reportsReady}</span>
             )}
@@ -147,11 +147,11 @@ export default function Dashboard() {
             Jobs
           </button>
 
-          <div className="pt-6 pb-2 px-3 text-xs font-bold text-slate-400 uppercase tracking-wider">System</div>
+          <div className="pt-6 pb-2 px-3 text-xs font-bold text-slate-400 uppercase tracking-wider">系统设置</div>
           
           <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors opacity-50 cursor-not-allowed">
             <Settings size={20} />
-            Settings
+            设置
           </button>
         </nav>
         
@@ -161,8 +161,8 @@ export default function Dashboard() {
               HR
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-slate-900 truncate">Admin User</p>
-              <p className="text-xs text-slate-500 truncate">Recruitment Team</p>
+              <p className="text-sm font-bold text-slate-900 truncate">管理员</p>
+              <p className="text-xs text-slate-500 truncate">招聘团队</p>
             </div>
           </div>
         </div>
@@ -178,7 +178,7 @@ export default function Dashboard() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 className="w-full bg-slate-50 border-none rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/20 placeholder:text-slate-400 transition-all outline-none" 
-                placeholder="Search candidates, interviews, or roles..." 
+                placeholder="搜索候选人、面试或职位..." 
                 type="text"
               />
             </div>
@@ -204,14 +204,14 @@ export default function Dashboard() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-extrabold text-slate-900 capitalize">
-                  {activeTab === 'dashboard' && 'Interview Dashboard'}
-                  {activeTab === 'candidates' && 'Candidates'}
-                  {activeTab === 'reports' && 'Evaluation Reports'}
+                  {activeTab === 'dashboard' && '面试控制台'}
+                  {activeTab === 'candidates' && '候选人列表'}
+                  {activeTab === 'reports' && 'AI评估报告'}
                 </h2>
                 <p className="text-slate-500 text-sm mt-1">
-                  {activeTab === 'dashboard' && 'Monitor and manage your active AI technical screening sessions.'}
-                  {activeTab === 'candidates' && 'View all candidate backgrounds and current pipeline status.'}
-                  {activeTab === 'reports' && 'Review completed AI analysis and interview playback.'}
+                  {activeTab === 'dashboard' && '监控和管理正在进行的 AI 技术面试。'}
+                  {activeTab === 'candidates' && '查看所有候选人背景及当前招聘漏斗状态。'}
+                  {activeTab === 'reports' && '查看已完成的 AI 评估分析及面试记录。'}
                 </p>
               </div>
               <Link 
@@ -219,7 +219,7 @@ export default function Dashboard() {
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all whitespace-nowrap"
               >
                 <Plus size={18} />
-                New Interview
+                新建面试
               </Link>
             </div>
 
@@ -231,7 +231,7 @@ export default function Dashboard() {
                   <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group">
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="text-sm font-medium text-slate-500 mb-1">Active Interviews</p>
+                        <p className="text-sm font-medium text-slate-500 mb-1">进行中的面试</p>
                         <h3 className="text-3xl font-extrabold text-slate-900">{activeInterviews}</h3>
                       </div>
                       <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
@@ -241,11 +241,11 @@ export default function Dashboard() {
                     {inProgressCount > 0 ? (
                       <div className="mt-4 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                        <span className="text-xs font-bold text-indigo-600">{inProgressCount} live session{inProgressCount > 1 ? 's' : ''} currently</span>
+                        <span className="text-xs font-bold text-indigo-600">当前有 {inProgressCount} 场面试正在进行</span>
                       </div>
                     ) : (
                       <div className="mt-4 flex items-center gap-2 text-xs text-slate-400 font-medium">
-                        Waiting for candidates to join
+                        等待候选人加入
                       </div>
                     )}
                   </div>
@@ -253,7 +253,7 @@ export default function Dashboard() {
                   <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm group">
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="text-sm font-medium text-slate-500 mb-1">Pending Invites</p>
+                        <p className="text-sm font-medium text-slate-500 mb-1">已邀请(待参加)</p>
                         <h3 className="text-3xl font-extrabold text-slate-900">{pendingInvites}</h3>
                       </div>
                       <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center group-hover:bg-amber-100 transition-colors">
@@ -262,14 +262,14 @@ export default function Dashboard() {
                     </div>
                     <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-500 font-medium">
                       <Clock size={14} />
-                      Awaiting candidate response
+                      等待候选人响应
                     </div>
                   </div>
                   
                   <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm group">
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="text-sm font-medium text-slate-500 mb-1">Reports Ready</p>
+                        <p className="text-sm font-medium text-slate-500 mb-1">报告生成完毕</p>
                         <h3 className="text-3xl font-extrabold text-slate-900">{reportsReady}</h3>
                       </div>
                       <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
@@ -278,7 +278,7 @@ export default function Dashboard() {
                     </div>
                     <div className="mt-4 flex items-center gap-1.5 text-xs text-emerald-600 font-bold">
                       <TrendingUp size={14} />
-                      Ready for HR review
+                      可供 HR 查看
                     </div>
                   </div>
                 </div>
@@ -287,11 +287,11 @@ export default function Dashboard() {
                 <div className="grid grid-cols-1 gap-6">
                   {/* Pipeline Distribution Chart (Visual Polish) */}
                   <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-                    <h4 className="font-bold text-slate-900 mb-6">Pipeline Distribution</h4>
+                    <h4 className="font-bold text-slate-900 mb-6">招聘漏斗分布</h4>
                     <div className="flex-1 flex flex-col justify-center gap-6 px-4 pb-4">
                       <div className="space-y-2">
                         <div className="flex justify-between text-xs font-bold text-slate-700">
-                          <span>Pending / Screening</span>
+                          <span>待参加 / 未开启</span>
                           <span>{sessions.length ? Math.round((pendingInvites / sessions.length) * 100) : 0}%</span>
                         </div>
                         <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
@@ -300,7 +300,7 @@ export default function Dashboard() {
                       </div>
                       <div className="space-y-2">
                         <div className="flex justify-between text-xs font-bold text-slate-700">
-                          <span>Technical Interview in Progress</span>
+                          <span>面试进行中</span>
                           <span>{sessions.length ? Math.round((inProgressCount / sessions.length) * 100) : 0}%</span>
                         </div>
                         <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
@@ -309,7 +309,7 @@ export default function Dashboard() {
                       </div>
                       <div className="space-y-2">
                         <div className="flex justify-between text-xs font-bold text-slate-700">
-                          <span>Final Evaluation Ready</span>
+                          <span>已评估完毕</span>
                           <span>{sessions.length ? Math.round((reportsReady / sessions.length) * 100) : 0}%</span>
                         </div>
                         <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
@@ -328,27 +328,27 @@ export default function Dashboard() {
             {activeTab === 'candidates' && (
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-                  <h4 className="font-bold text-slate-900">Candidate Roster</h4>
+                  <h4 className="font-bold text-slate-900">候选人名单</h4>
                   <div className="flex items-center gap-2">
-                    <button className="text-sm font-medium text-slate-500 hover:text-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors">Filter</button>
-                    <button className="text-sm font-medium text-slate-500 hover:text-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors">Export</button>
+                    <button className="text-sm font-medium text-slate-500 hover:text-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors">筛选</button>
+                    <button className="text-sm font-medium text-slate-500 hover:text-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors">导出</button>
                   </div>
                 </div>
                 {sessions.length === 0 ? (
                   <div className="p-16 text-center text-slate-500">
                     <Users className="mx-auto h-12 w-12 text-slate-300 mb-4" />
-                    <h3 className="text-lg font-bold text-slate-900 mb-2">No candidates</h3>
-                    <p className="text-sm">Create an interview to add a candidate.</p>
+                    <h3 className="text-lg font-bold text-slate-900 mb-2">暂无候选人</h3>
+                    <p className="text-sm">新建一个面试来添加候选人。</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead className="bg-slate-50 border-b border-slate-100">
                         <tr>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Candidate Info</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Role</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Added</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">候选人信息</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">投递岗位</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">求职状态</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">添加时间</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -361,7 +361,7 @@ export default function Dashboard() {
                                 </div>
                                 <div className="min-w-0">
                                   <p className="text-sm font-bold text-slate-900 truncate">{session.candidateInfo.name}</p>
-                                  <p className="text-xs text-slate-500 truncate">{session.candidateInfo.email || 'No email provided'}</p>
+                                  <p className="text-xs text-slate-500 truncate">{session.candidateInfo.email || '未提供邮箱'}</p>
                                 </div>
                               </div>
                             </td>
@@ -371,15 +371,15 @@ export default function Dashboard() {
                             <td className="px-6 py-4">
                               {session.status === 'COMPLETED' ? (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                                  Evaluated
+                                  已评估
                                 </span>
                               ) : session.status === 'IN_PROGRESS' ? (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/20">
-                                  Interviewing
+                                  面试中
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-500/10">
-                                  Pending Check-in
+                                  等待参加
                                 </span>
                               )}
                             </td>
@@ -399,36 +399,36 @@ export default function Dashboard() {
             {activeTab === 'reports' && (
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-                  <h4 className="font-bold text-slate-900">AI Evaluation Reports</h4>
+                  <h4 className="font-bold text-slate-900">AI 评估报告</h4>
                   <div className="flex items-center gap-2">
                     <select 
                       value={reportFilter} 
                       onChange={(e) => setReportFilter(e.target.value as any)}
                       className="text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                     >
-                      <option value="ALL">All Status</option>
-                      <option value="COMPLETED">Completed</option>
-                      <option value="IN_PROGRESS">In Progress</option>
-                      <option value="PENDING">Pending</option>
+                      <option value="ALL">所有状态</option>
+                      <option value="COMPLETED">已评估</option>
+                      <option value="IN_PROGRESS">面试中</option>
+                      <option value="PENDING">未开启</option>
                     </select>
                   </div>
                 </div>
                 {sessions.filter(s => reportFilter === 'ALL' || s.status === reportFilter).length === 0 ? (
                   <div className="p-16 text-center text-slate-500">
                     <FilePlus className="mx-auto h-12 w-12 text-slate-300 mb-4" />
-                    <h3 className="text-lg font-bold text-slate-900 mb-2">No reports yet</h3>
-                    <p className="text-sm">Reports will appear here once candidates complete their interviews.</p>
+                    <h3 className="text-lg font-bold text-slate-900 mb-2">暂无报告</h3>
+                    <p className="text-sm">候选人完成面试后，自动生成的评估报告将显示在这里。</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead className="bg-slate-50 border-b border-slate-100">
                         <tr>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Candidate / Date</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Duration</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Score</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Hire Recommendation</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">候选人 / 日期</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">面试时长</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">系统评分</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">录用建议</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">

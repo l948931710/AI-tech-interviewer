@@ -58,7 +58,6 @@ export default function ReportView() {
         report={session.report}
         candidateInfo={session.candidateInfo}
         history={session.transcript}
-        onRestart={() => navigate('/hr')} // Modified behavior
       />
     </div>
   );

@@ -10,10 +10,9 @@ interface ReportScreenProps {
   report: InterviewReport;
   candidateInfo: CandidateInfo;
   history: StructuredInterviewTurn[];
-  onRestart: () => void;
 }
 
-export default function ReportScreen({ report, candidateInfo, history, onRestart }: ReportScreenProps) {
+export default function ReportScreen({ report, candidateInfo, history }: ReportScreenProps) {
   const [emailTo, setEmailTo] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sendStatus, setSendStatus] = useState<'IDLE' | 'SUCCESS' | 'ERROR'>('IDLE');
@@ -559,14 +558,7 @@ export default function ReportScreen({ report, candidateInfo, history, onRestart
           </div>
         </div>
 
-        <div className="flex justify-center pt-8">
-          <button
-            onClick={onRestart}
-            className="px-8 py-3 bg-gray-900 text-white rounded-xl font-medium hover:bg-gray-800 transition-colors shadow-sm"
-          >
-            Start New Interview
-          </button>
-        </div>
+
 
       </motion.div>
     </div>
