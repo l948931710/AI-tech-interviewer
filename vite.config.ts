@@ -49,14 +49,20 @@ export default defineConfig(({mode}) => {
             try {
               ensureEnv();
               const body = await readBody(req);
-              const { POST } = await server.ssrLoadModule(handlerPath);
+              const mod = await server.ssrLoadModule(handlerPath);
+              const handler = mod.POST || mod.default;
+              
+              if (!handler) {
+                throw new Error(`No POST or default export found in ${handlerPath}`);
+              }
+
               const fetchReq = new Request(`http://${req.headers.host}${req.url}`, {
                 method: 'POST',
                 headers: Object.fromEntries(Object.entries(req.headers)) as any,
                 body
               });
 
-              const fetchRes = await POST(fetchReq);
+              const fetchRes = await handler(fetchReq);
               res.statusCode = fetchRes.status;
               fetchRes.headers.forEach((val: string, key: string) => {
                 res.setHeader(key, val);
