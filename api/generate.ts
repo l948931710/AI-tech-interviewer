@@ -1,7 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Cache SDK instance at module level to avoid re-initialization overhead per request.
-// The API key is read from process.env (Vercel env vars) — never exposed to the client.
+// Tell Vercel to deploy this function on the Edge Runtime.
+// Edge Runtime has a 30s maximum execution limit on Hobby tier, instead of 10s for Serverless.
+export const config = { runtime: 'edge' };
+
+// Cache SDK instance at module level
 let cachedAI: GoogleGenAI | null = null;
 
 export function getAI(): GoogleGenAI {
@@ -26,7 +29,7 @@ export default async function handler(req: Request) {
     const ai = getAI();
     const body = await req.json();
 
-    const { model, contents, config } = body;
+    const { model, contents, config: aiConfig } = body;
 
     if (!model || !contents) {
        return new Response(JSON.stringify({ error: "Missing required fields: model or contents" }), {
@@ -37,10 +40,11 @@ export default async function handler(req: Request) {
 
     console.log(`Generating content using model: ${model}`);
     
+    // Explicitly set timeout for fetch within Edge function (max 28 seconds to leave room for graceful exit)
     const response = await ai.models.generateContent({
       model,
       contents,
-      config
+      config: aiConfig
     });
 
     console.log("Successfully generated content.");
