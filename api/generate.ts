@@ -1,7 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Removed edge runtime config to allow standard Node.js serverless functions
-// that can utilize maxDuration for longer API generation
+// Export maxDuration for Vercel Serverless Functions
+// Hobby tier allows up to 60 seconds, which fixes the 504 FUNCTION_INVOCATION_TIMEOUT
+export const maxDuration = 60;
 
 // Cache SDK instance at module level
 let cachedAI: GoogleGenAI | null = null;
