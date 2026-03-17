@@ -1,8 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Tell Vercel to deploy this function on the Edge Runtime.
-// Edge Runtime has a 30s maximum execution limit on Hobby tier, instead of 10s for Serverless.
-export const config = { runtime: 'edge' };
+// Removed edge runtime config to allow standard Node.js serverless functions
+// that can utilize maxDuration for longer API generation
 
 // Cache SDK instance at module level
 let cachedAI: GoogleGenAI | null = null;
