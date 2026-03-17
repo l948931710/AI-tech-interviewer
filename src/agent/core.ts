@@ -12,7 +12,7 @@ export function parseJsonResponse<T>(text: string | undefined): T {
 
 export async function callAiBackend(model: string, contents: any, config?: any) {
   const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:5173/api';
-  
+
   const response = await fetch(`${baseUrl}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -24,12 +24,53 @@ export async function callAiBackend(model: string, contents: any, config?: any) 
     throw new Error(`AI Backend Error: ${response.status} - ${errorBody}`);
   }
 
-  const json = await response.json();
-  const part = json.candidates?.[0]?.content?.parts?.[0];
-  // mimic SDK payload structure back to parsing logic
+  // Consume SSE stream and reassemble the full response
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+  let lastAudioData: string | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // Parse SSE events (format: "data: ...\n\n")
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || ''; // keep last partial event
+
+    for (const event of events) {
+      const line = event.trim();
+      if (!line.startsWith('data: ')) continue;
+
+      const payload = line.slice(6);
+      if (payload === '[DONE]') break;
+
+      try {
+        const parsed = JSON.parse(payload);
+        if (parsed.error) {
+          throw new Error(parsed.error);
+        }
+        if (parsed.text) {
+          fullText += parsed.text;
+        }
+        if (parsed.audioData) {
+          lastAudioData = parsed.audioData;
+        }
+      } catch (e: any) {
+        if (e.message && !e.message.includes('JSON')) {
+          throw e;
+        }
+        // Skip malformed SSE lines
+      }
+    }
+  }
+
   return {
-     text: part?.text || '',
-     audioData: part?.inlineData?.data || null
+    text: fullText,
+    audioData: lastAudioData
   };
 }
 
