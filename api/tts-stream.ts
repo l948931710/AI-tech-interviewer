@@ -30,7 +30,11 @@ function getAI(): GoogleGenAI {
   return cachedAI;
 }
 
-export async function POST(req: Request) {
+export default async function handler(req: Request) {
+  if (req.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 });
+  }
+
   try {
     const ai = getAI();
     const { text, voiceName } = await req.json();

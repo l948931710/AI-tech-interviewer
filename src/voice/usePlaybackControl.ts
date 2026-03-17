@@ -201,7 +201,7 @@ export function usePlaybackControl() {
           console.warn("Fallback TTS timed out");
         }
         resolve();
-      }, 15000);
+      }, 60000);
 
       utterance.onend = () => {
         clearTimeout(timeoutId);
