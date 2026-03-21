@@ -74,7 +74,7 @@ export default function CreateInterview() {
         </div>
 
         <button 
-          onClick={() => navigate('/hr')}
+          onClick={() => navigate('/hr/dashboard')}
           className="text-gray-500 hover:text-gray-900 font-medium transition flex items-center gap-2"
         >
           <ArrowLeft size={18} />
@@ -88,7 +88,7 @@ export default function CreateInterview() {
     <div className="min-h-screen bg-gray-50 pt-8">
       <div className="max-w-4xl mx-auto px-6 mb-4">
         <button 
-          onClick={() => navigate('/hr')}
+          onClick={() => navigate('/hr/dashboard')}
           className="text-gray-500 hover:text-gray-900 font-medium transition flex items-center gap-2"
         >
           <ArrowLeft size={18} />

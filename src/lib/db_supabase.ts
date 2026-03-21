@@ -157,12 +157,7 @@ export const dbSupabase = {
   updateTranscript: async (id: string, transcript: StructuredInterviewTurn[]): Promise<void> => {
     if (!transcript || transcript.length === 0) return;
 
-    await supabase
-      .from('session_transcripts')
-      .delete()
-      .eq('session_id', id);
-
-    const rowsToInsert = transcript.map(turn => ({
+    const rowsToInsert = transcript.map((turn, index) => ({
       session_id: id,
       question_id: turn.questionId,
       question: turn.question,
@@ -175,12 +170,38 @@ export const dbSupabase = {
       timestamp: turn.timestamp ? new Date(parseInt(turn.timestamp)).toISOString() : new Date().toISOString()
     }));
 
-    const { error } = await supabase
+    // Safe pattern: insert new rows first, then delete old ones on success.
+    // If the insert fails, old data is preserved (no data loss).
+    
+    // 1. Get IDs of existing rows (so we know what to delete after insert)
+    const { data: existingRows } = await supabase
+      .from('session_transcripts')
+      .select('id')
+      .eq('session_id', id);
+
+    const existingIds = (existingRows || []).map((r: any) => r.id);
+
+    // 2. Insert new rows first
+    const { error: insertError } = await supabase
       .from('session_transcripts')
       .insert(rowsToInsert);
 
-    if (error) {
-      console.error('Error updating transcript:', error);
+    if (insertError) {
+      console.error('Error inserting updated transcript (old data preserved):', insertError);
+      return; // Old data is still intact — no data loss
+    }
+
+    // 3. Only now delete the old rows (insert succeeded)
+    if (existingIds.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('session_transcripts')
+        .delete()
+        .in('id', existingIds);
+
+      if (deleteError) {
+        console.error('Error cleaning up old transcript rows:', deleteError);
+        // Not critical — we have duplicates but no data loss
+      }
     }
   },
 

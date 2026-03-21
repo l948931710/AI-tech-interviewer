@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, InterviewSession } from '../../lib/db';
 import { InterviewScreen } from '../../components/InterviewScreen';
@@ -11,10 +11,14 @@ import {
   StructuredInterviewTurn,
   TurnType
 } from '../../agent';
+import { getAuthHeaders } from '../../agent/core';
 import { useAudio, generateTTSStream, generateTTS } from '../../voice';
 import { Loader2, Camera as CameraIcon, Mic, Wifi, ArrowRight, Check } from 'lucide-react';
 
+const USE_LOCAL = import.meta.env.VITE_USE_LOCAL_DB === 'true';
+
 type SystemCheckState = 'idle' | 'checking' | 'completed';
+type VoiceState = 'idle' | 'evaluating' | 'preparing' | 'speaking' | 'reminder';
 
 export default function InterviewPortal() {
   const { id } = useParams<{ id: string }>();
@@ -34,21 +38,27 @@ export default function InterviewPortal() {
   const [cameraCheck, setCameraCheck] = useState<SystemCheckState>('idle');
   const [micCheck, setMicCheck] = useState<SystemCheckState>('idle');
   const [networkCheck, setNetworkCheck] = useState<SystemCheckState>('idle');
+  const [systemCheckFailed, setSystemCheckFailed] = useState(false);
   
   // Timer State
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
 
-  // Audio & UI State
-  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
-  const [isEvaluating, setIsEvaluating] = useState(false);
-  const [isPreparingAudio, setIsPreparingAudio] = useState(false);
+  // Audio & UI State — single source of truth for voice pipeline coordination
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const { playTTSStream, fallbackTTS, playTTS, stopAudio } = useAudio();
+
+  // Derived booleans for child component props (computed each render, never stale)
+  const isEvaluating = voiceState === 'evaluating';
+  const isPreparingAudio = voiceState === 'preparing';
+  const isAiSpeaking = voiceState === 'speaking' || voiceState === 'reminder';
+  const isReminderSpeaking = voiceState === 'reminder';
   
   // Pre-fetching caches
   const [firstQuestionCache, setFirstQuestionCache] = useState<string | null>(null);
   const [firstSpokenQuestionCache, setFirstSpokenQuestionCache] = useState<string | null>(null);
   const firstQuestionPromiseRef = useRef<Promise<{question: string, spokenQuestion: string, rationale: string}> | null>(null);
   const firstQuestionAudioPromiseRef = useRef<Promise<string | null> | null>(null);
+  const introAudioPromiseRef = useRef<Promise<string | null> | null>(null);
 
   useEffect(() => {
     const loadSessionData = async () => {
@@ -60,6 +70,13 @@ export default function InterviewPortal() {
         }
         if (loadSession.status === 'COMPLETED') {
           navigate('/thank-you', { replace: true });
+          return;
+        }
+
+        // C1 fix: Block access if session is already being used by another candidate
+        if (loadSession.status === 'IN_PROGRESS') {
+          alert('This interview session is already in progress.');
+          navigate('/', { replace: true });
           return;
         }
 
@@ -90,6 +107,11 @@ export default function InterviewPortal() {
             .catch(e => console.error("Failed to pre-fetch first question", e));
         }
 
+        // Pre-fetch intro question TTS (text is known ahead of time)
+        const firstName = loadSession.candidateInfo.name.split(' ')[0];
+        const introText = `你好 ${firstName}，我是你的AI面试官。感谢你今天抽出时间。在我们开始讨论你的技术经历之前，你能先简单做个自我介绍吗？`;
+        introAudioPromiseRef.current = generateTTS(introText);
+
         setAppState('READY');
       }
     };
@@ -110,16 +132,14 @@ export default function InterviewPortal() {
     };
   }, [appState, id]);
 
-  const speakQuestion = async (text: string) => {
-    setIsPreparingAudio(true);
+  const speakQuestion = async (text: string, isReminder = false) => {
+    const speakingState: VoiceState = isReminder ? 'reminder' : 'speaking';
+    setVoiceState('preparing');
     try {
-      // Safety timeout: abort if no audio chunk arrives within 30s.
-      // Vercel Edge Functions have a 30s limit; cold start + Gemini TTS
-      // generation can take 10-20s on first request.
-      // Once playback starts, the timeout is cancelled so it never interrupts mid-speech.
+      // Safety timeout: abort if no audio chunk arrives within 12s.
       let cancelTimeout: () => void;
       const timeoutPromise = new Promise<void>((_, reject) => {
-        const id = setTimeout(() => reject(new Error('TTS timeout')), 30000);
+        const id = setTimeout(() => reject(new Error('TTS timeout')), 12000);
         cancelTimeout = () => clearTimeout(id);
       });
 
@@ -127,23 +147,25 @@ export default function InterviewPortal() {
         (async () => {
           const audioStream = generateTTSStream(text);
           await playTTSStream(audioStream, () => {
-            cancelTimeout!(); // First chunk arrived — cancel the timeout
-            setIsPreparingAudio(false);
-            setIsAiSpeaking(true);
+            cancelTimeout!();
+            setVoiceState(speakingState);
           });
         })(),
         timeoutPromise
       ]);
     } catch (error) {
       console.warn("TTS streaming failed or timed out, using browser fallback:", error);
-      stopAudio(); // Stop any partially-playing audio before fallback
-      setIsPreparingAudio(false);
-      setIsAiSpeaking(true);
+      stopAudio();
+      setVoiceState(speakingState);
       await fallbackTTS(text);
     }
-    setIsPreparingAudio(false);
-    setIsAiSpeaking(false);
+    setVoiceState('idle');
   };
+
+  const handleBargeIn = useCallback(() => {
+    stopAudio();
+    setVoiceState('idle');
+  }, [stopAudio]);
 
   const handleStartInterview = async () => {
     if (!session || !id) return;
@@ -157,23 +179,62 @@ export default function InterviewPortal() {
     
     setCurrentQuestion(introQuestion);
     setAppState('INTERVIEWING');
-    await speakQuestion(introQuestion);
+
+    // Use pre-fetched intro audio for instant playback
+    let introAudio: string | null = null;
+    if (introAudioPromiseRef.current) {
+      try {
+        introAudio = await introAudioPromiseRef.current;
+      } catch (e) {
+        console.warn("Intro TTS pre-fetch failed, will use streaming:", e);
+      }
+    }
+    if (introAudio) {
+      setVoiceState('speaking');
+      await playTTS(introAudio);
+      setVoiceState('idle');
+    } else {
+      await speakQuestion(introQuestion);
+    }
   };
 
   const handleSystemCheck = async () => {
     setSystemCheck('checking');
+    setSystemCheckFailed(false);
     
+    // C3 fix: Real camera permission check (non-blocking — camera is optional)
     setCameraCheck('checking');
-    await new Promise(resolve => setTimeout(resolve, 800));
-    setCameraCheck('completed');
+    try {
+      const camStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      camStream.getTracks().forEach(t => t.stop());
+      setCameraCheck('completed');
+    } catch {
+      setCameraCheck('completed'); // Camera is optional, mark as done regardless
+    }
     
+    // C3 fix: Real microphone permission check (BLOCKING — mic is required)
     setMicCheck('checking');
-    await new Promise(resolve => setTimeout(resolve, 800));
-    setMicCheck('completed');
+    try {
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStream.getTracks().forEach(t => t.stop());
+      setMicCheck('completed');
+    } catch {
+      setMicCheck('completed');
+      setSystemCheckFailed(true);
+      setSystemCheck('completed');
+      setNetworkCheck('completed');
+      return; // Stop here — mic is required
+    }
     
+    // Network check
     setNetworkCheck('checking');
-    await new Promise(resolve => setTimeout(resolve, 800));
-    setNetworkCheck('completed');
+    try {
+      if (!navigator.onLine) throw new Error('Offline');
+      setNetworkCheck('completed');
+    } catch {
+      setNetworkCheck('completed');
+      setSystemCheckFailed(true);
+    }
     
     setSystemCheck('completed');
   };
@@ -214,7 +275,8 @@ export default function InterviewPortal() {
   };
 
   const handleAnswerSubmit = async (answer: string) => {
-    setIsEvaluating(true);
+    if (voiceState !== 'idle') return; // Guard: only accept answers when idle
+    setVoiceState('evaluating');
     
     if (interviewPhase === 'INTRO') {
       try {
@@ -247,17 +309,17 @@ export default function InterviewPortal() {
          setCurrentQuestionId(crypto.randomUUID());
          setCurrentQuestion(nextQ!);
          syncTranscript(updatedMemory);
-         setIsEvaluating(false);
+
          
          if (prefetchAudio) {
-           setIsAiSpeaking(true);
+           setVoiceState('speaking');
            await playTTS(prefetchAudio);
-           setIsAiSpeaking(false);
+           setVoiceState('idle');
          } else {
            await speakQuestion(nextSpokenQ || nextQ!);
          }
       } catch (e) {
-        setIsEvaluating(false);
+
         await speakQuestion("抱歉，网络出了点问题，能再重复一下吗？");
       }
       return;
@@ -333,7 +395,6 @@ export default function InterviewPortal() {
           setCurrentQuestionId(crypto.randomUUID());
           setCurrentQuestion(closingStatement);
           syncTranscript(updatedMemory);
-          setIsEvaluating(false);
           await speakQuestion(spokenClosingStatement);
         }
         
@@ -356,34 +417,29 @@ export default function InterviewPortal() {
       setCurrentQuestionId(crypto.randomUUID());
       setCurrentQuestion(nextStep.nextQuestion);
       syncTranscript(updatedMemory);
-      setIsEvaluating(false);
       
       // Now play the audio stream (first chunks may already be available)
-      setIsPreparingAudio(true);
+      setVoiceState('preparing');
       try {
         await playTTSStream(audioStream, () => {
-          setIsPreparingAudio(false);
-          setIsAiSpeaking(true);
+          setVoiceState('speaking');
         });
       } catch (error) {
-        setIsPreparingAudio(false);
-        setIsAiSpeaking(true);
+        setVoiceState('speaking');
         await fallbackTTS(textToSpeak);
       }
-      setIsPreparingAudio(false);
-      setIsAiSpeaking(false);
+      setVoiceState('idle');
 
     } catch (error) {
       console.error("Evaluation failed", error);
-      setIsEvaluating(false);
       await speakQuestion("抱歉，我的网络好像有点问题，没能听清。你能再重复一下刚才的回答吗？");
     }
   };
 
   const handleSilenceTimeout = async (level: 'voice' | 'skip') => {
-    if (isAiSpeaking || isEvaluating || isPreparingAudio) return;
+    if (voiceState !== 'idle') return;
     if (level === 'voice') {
-      await speakQuestion("你还在听吗？如果需要更多时间思考，请随时告诉我。");
+      await speakQuestion("你还在听吗？如果需要更多时间思考，请随时告诉我。", true);
     } else if (level === 'skip') {
       await handleAnswerSubmit("（候选人长时间未作答，跳过此问题）");
     }
@@ -394,13 +450,33 @@ export default function InterviewPortal() {
     setAppState('GENERATING_REPORT');
     
     try {
-      const finalTranscript = syncTranscript(finalMemory)!;
-      // In a real app, report generation should happen securely on the backend.
-      const finalReport = await generateReport(finalTranscript, finalMemory.getClaims());
-      
-      // Save Report & Mark Completed
-      db.completeSession(id, finalReport);
-      
+      // Sync the final transcript
+      const finalTranscript = syncTranscript(finalMemory);
+
+      if (USE_LOCAL) {
+        // Local dev: generate report client-side since server can't access localStorage
+        const report = await generateReport(
+          finalTranscript || [],
+          session.claims
+        );
+        await db.completeSession(id, report);
+      } else {
+        // Production: generate report server-side — the endpoint pulls session data from
+        // Supabase directly (not from the client), preventing tampering.
+        const baseUrl = `${window.location.origin}/api`;
+        const authHeaders = await getAuthHeaders();
+        const response = await fetch(`${baseUrl}/generate-report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ sessionId: id })
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(`Report generation failed: ${response.status} - ${errorBody}`);
+        }
+      }
+
       // Navigate to candidate end screen
       navigate('/thank-you', { replace: true });
     } catch (e) {
@@ -411,6 +487,7 @@ export default function InterviewPortal() {
 
   const handleEndSession = async () => {
     stopAudio();
+    setVoiceState('idle');
     if (memory && id) {
       const isActuallyFinished = memory.getIsInterviewEnded();
       if (isActuallyFinished) {
@@ -551,13 +628,25 @@ export default function InterviewPortal() {
                     )}
                   </button>
                 ) : (
-                  <button 
-                    onClick={handleStartInterview}
-                    className="w-full mt-8 bg-[#118C33] hover:bg-[#0E7329] text-white py-3 px-6 rounded-sm font-semibold text-base uppercase tracking-wider flex items-center justify-center gap-2 transition-colors border-none cursor-pointer animate-[fadeIn_0.3s_ease-out]"
-                  >
-                    Begin Session
-                    <ArrowRight size={18} />
-                  </button>
+                  <>
+                    {systemCheckFailed && (
+                      <div className="w-full mb-4 p-3 bg-red-50 border border-red-200 rounded-sm text-red-700 text-sm font-medium">
+                        Microphone access is required for the interview. Please grant permission and try again.
+                      </div>
+                    )}
+                    <button 
+                      onClick={handleStartInterview}
+                      disabled={systemCheckFailed}
+                      className={`w-full mt-4 py-3 px-6 rounded-sm font-semibold text-base uppercase tracking-wider flex items-center justify-center gap-2 transition-colors border-none animate-[fadeIn_0.3s_ease-out] ${
+                        systemCheckFailed
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          : 'bg-[#118C33] hover:bg-[#0E7329] text-white cursor-pointer'
+                      }`}
+                    >
+                      Begin Session
+                      <ArrowRight size={18} />
+                    </button>
+                  </>
                 )}
               </div>
 
@@ -588,8 +677,10 @@ export default function InterviewPortal() {
         isAiSpeaking={isAiSpeaking}
         isEvaluating={isEvaluating}
         isPreparingAudio={isPreparingAudio}
+        isReminderSpeaking={isReminderSpeaking}
         onAnswerSubmit={handleAnswerSubmit}
         onSilenceTimeout={handleSilenceTimeout}
+        onBargeIn={handleBargeIn}
         onEndSession={handleEndSession}
       />
     );

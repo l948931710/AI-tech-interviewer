@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
+import Login from './pages/hr/Login';
 import Dashboard from './pages/hr/Dashboard';
 import CreateInterview from './pages/hr/CreateInterview';
 import ReportView from './pages/hr/ReportView';
+import UpdatePassword from './pages/hr/UpdatePassword';
 import InterviewPortal from './pages/candidate/InterviewPortal';
 import ThankYouScreen from './pages/candidate/ThankYouScreen';
 import { motion } from 'motion/react';
 import { Users, FileText, Zap } from 'lucide-react';
+
+import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
@@ -93,9 +97,11 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         
         {/* HR Portal */}
-        <Route path="/hr" element={<Dashboard />} />
-        <Route path="/hr/new" element={<CreateInterview />} />
-        <Route path="/hr/report/:id" element={<ReportView />} />
+        <Route path="/hr" element={<Login />} />
+        <Route path="/hr/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/hr/new" element={<ProtectedRoute><CreateInterview /></ProtectedRoute>} />
+        <Route path="/hr/report/:id" element={<ProtectedRoute><ReportView /></ProtectedRoute>} />
+        <Route path="/update-password" element={<UpdatePassword />} />
         
         {/* Candidate Portal */}
         <Route path="/invite/:id" element={<InterviewPortal />} />

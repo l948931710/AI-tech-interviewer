@@ -1,8 +1,26 @@
+import { supabase } from '../lib/supabase';
+
 export const MODELS = {
   INTERVIEW: "gemini-3-flash-preview",
   REPORT: "gemini-3.1-pro-preview",
   TTS: "gemini-2.5-flash-preview-tts"
 };
+
+/**
+ * Get the current Supabase session token for authenticated API calls.
+ * Returns empty object if no session (e.g. during local dev with USE_LOCAL_DB=true).
+ */
+export async function getAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      return { 'Authorization': `Bearer ${session.access_token}` };
+    }
+  } catch {
+    // Silently fall through — local dev without Supabase will have no session
+  }
+  return {};
+}
 
 export function parseJsonResponse<T>(text: string | undefined): T {
   let t = text || "{}";
@@ -12,10 +30,11 @@ export function parseJsonResponse<T>(text: string | undefined): T {
 
 export async function callAiBackend(model: string, contents: any, config?: any) {
   const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:5173/api';
+  const authHeaders = await getAuthHeaders();
 
   const response = await fetch(`${baseUrl}/generate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify({ model, contents, config })
   });
 

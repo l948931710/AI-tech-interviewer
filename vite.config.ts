@@ -21,8 +21,13 @@ export default defineConfig(({mode}) => {
             if (envLoaded) return;
             try {
               const localEnv = dotenv.parse(fs.readFileSync('.env.local'));
-              if (localEnv.GEMINI_API_KEY) {
-                process.env.GEMINI_API_KEY = localEnv.GEMINI_API_KEY;
+              // Load ALL env vars so local API middleware has access to
+              // GEMINI_API_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY,
+              // SUPABASE_SERVICE_ROLE_KEY, etc.
+              for (const [key, value] of Object.entries(localEnv)) {
+                if (value && !process.env[key]) {
+                  process.env[key] = value;
+                }
               }
             } catch (err) {
               // ignore if file not found
@@ -102,6 +107,11 @@ export default defineConfig(({mode}) => {
           // Route: /api/tts-stream (TTS audio, SSE streaming)
           server.middlewares.use('/api/tts-stream', (req, res) => {
             proxyToHandler(req, res, '/api/tts-stream.ts');
+          });
+
+          // Route: /api/generate-report (Server-side report generation)
+          server.middlewares.use('/api/generate-report', (req, res) => {
+            proxyToHandler(req, res, '/api/generate-report.ts');
           });
         }
       }

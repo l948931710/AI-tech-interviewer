@@ -17,7 +17,7 @@ export default function ReportView() {
           setSession(loadSession);
         } else {
           alert("Session not found");
-          navigate('/hr');
+          navigate('/hr/dashboard');
         }
       }
     };
@@ -32,7 +32,7 @@ export default function ReportView() {
         <h2 className="text-2xl font-bold text-gray-900 mb-2">Interview Not Completed</h2>
         <p className="text-gray-600 mb-6">This candidate has not finished their interview yet.</p>
         <button 
-          onClick={() => navigate('/hr')}
+          onClick={() => navigate('/hr/dashboard')}
           className="text-indigo-600 hover:underline font-medium flex items-center gap-2"
         >
           <ArrowLeft size={18} /> Return to Dashboard
@@ -45,7 +45,7 @@ export default function ReportView() {
     <div className="bg-gray-50 min-h-screen pb-12">
       <div className="max-w-4xl mx-auto px-6 pt-8 pb-4">
         <button 
-          onClick={() => navigate('/hr')}
+          onClick={() => navigate('/hr/dashboard')}
           className="text-gray-500 hover:text-gray-900 font-medium transition flex items-center gap-2"
         >
           <ArrowLeft size={18} />

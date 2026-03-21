@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { verifyAuth } from "./api-auth";
 
 /**
  * Streaming generate endpoint using Server-Sent Events (SSE).
@@ -33,7 +34,11 @@ export default async function handler(req: Request) {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
-  console.log("=== API/GENERATE (streaming) TRIGGERED ===");
+  // Authenticate: require a valid Supabase JWT
+  const auth = await verifyAuth(req);
+  if (auth.error) return auth.error;
+
+  console.log(`=== API/GENERATE (streaming) TRIGGERED by user ${auth.user.id} ===`);
 
   try {
     const ai = getAI();

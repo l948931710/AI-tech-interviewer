@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { verifyAuth } from "./api-auth";
 
 /**
  * Streaming TTS endpoint using Server-Sent Events (SSE).
@@ -34,6 +35,10 @@ export default async function handler(req: Request) {
   if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
+
+  // Authenticate: require a valid Supabase JWT
+  const auth = await verifyAuth(req);
+  if (auth.error) return auth.error;
 
   try {
     const ai = getAI();

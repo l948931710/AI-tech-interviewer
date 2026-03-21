@@ -17,8 +17,10 @@ interface InterviewScreenProps {
   isAiSpeaking: boolean;
   isEvaluating: boolean;
   isPreparingAudio: boolean;
+  isReminderSpeaking: boolean;
   onAnswerSubmit: (answer: string) => void;
   onSilenceTimeout: (level: 'voice' | 'skip') => void;
+  onBargeIn?: () => void;
   onEndSession?: () => void;
 }
 
@@ -30,8 +32,10 @@ export function InterviewScreen({
   isAiSpeaking, 
   isEvaluating,
   isPreparingAudio,
+  isReminderSpeaking,
   onAnswerSubmit,
   onSilenceTimeout,
+  onBargeIn,
   onEndSession
 }: InterviewScreenProps) {
   const { videoRef, hasVideo } = useCamera();
@@ -62,8 +66,11 @@ export function InterviewScreen({
     isAiSpeaking,
     isEvaluating,
     isPreparingAudio,
+    isSpeechDetected,
+    isReminderSpeaking,
     startListening,
-    stopListening
+    stopListening,
+    onBargeIn
   );
 
   // Reset reminder state when question changes
