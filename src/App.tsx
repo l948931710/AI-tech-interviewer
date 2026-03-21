@@ -15,6 +15,18 @@ import ProtectedRoute from './components/ProtectedRoute';
 export default function App() {
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
 
+  // Intercept Supabase invite/recovery tokens landing on wrong page and redirect to /update-password
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return;
+    const isAuthRedirect = hash.includes('type=invite') || hash.includes('type=recovery') || hash.includes('type=signup');
+    const isAlreadyOnUpdatePage = window.location.pathname.includes('update-password');
+    if (isAuthRedirect && !isAlreadyOnUpdatePage) {
+      // Redirect immediately, preserving the hash so UpdatePassword can process the tokens
+      window.location.replace(`/update-password${hash}`);
+    }
+  }, []);
+
   useEffect(() => {
     const checkKey = async () => {
       if ((window as any).aistudio && (window as any).aistudio.hasSelectedApiKey) {
