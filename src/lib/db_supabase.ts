@@ -3,14 +3,22 @@ import { supabase } from './supabase';
 import { Claim, StructuredInterviewTurn, InterviewReport } from '../agent';
 
 export const dbSupabase = {
-  createSession: async (data: Omit<InterviewSession, 'id' | 'createdAt' | 'status' | 'transcript' | 'report'>): Promise<string> => {
+  createSession: async (data: Omit<InterviewSession, 'id' | 'createdAt' | 'status' | 'transcript' | 'report'>): Promise<{ id: string; inviteToken: string }> => {
+    // Get the authenticated HR user's ID to store as session owner
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // C3 fix: Generate a secure invite token for candidate access
+    const inviteToken = crypto.randomUUID();
+
     const { data: sessionData, error: sessionError } = await supabase
       .from('interview_sessions')
       .insert({
         jd_text: data.jdText,
         job_role_context: data.jobRoleContext,
         candidate_info: data.candidateInfo,
-        status: 'PENDING'
+        status: 'PENDING',
+        created_by: user?.id || null,   // C1 fix: track session owner
+        invite_token: inviteToken,       // C3 fix: secure token for candidates
       })
       .select('id')
       .single();
@@ -47,7 +55,7 @@ export const dbSupabase = {
       }
     }
 
-    return sessionId;
+    return { id: sessionId, inviteToken };
   },
 
   getSession: async (id: string): Promise<InterviewSession | null> => {
@@ -117,6 +125,7 @@ export const dbSupabase = {
       jobRoleContext: sessionData.job_role_context,
       candidateInfo: sessionData.candidate_info,
       report: sessionData.report,
+      inviteToken: sessionData.invite_token || undefined,  // C3 fix
       claims,
       transcript
     };

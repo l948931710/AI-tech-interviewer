@@ -12,7 +12,10 @@ import { verifyAuth } from "./api-auth";
  * This prevents candidates from tampering with their own evaluation.
  */
 
-export const config = { runtime: 'edge' };
+// Use Node.js runtime with extended timeout for report generation.
+// Edge Runtime has a 30s hard limit which Gemini 3.1 Pro often exceeds
+// for complex structured report generation.
+export const config = { maxDuration: 60 };
 
 // Module-level SDK cache
 let cachedAI: GoogleGenAI | null = null;
@@ -85,6 +88,15 @@ export default async function handler(req: Request) {
         : 'Session has not started yet';
       return new Response(JSON.stringify({ error: message }), {
         status: 409,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    // C1 fix: Verify session ownership — only the HR user who created this session can generate the report
+    if (sessionData.created_by && sessionData.created_by !== auth.user.id) {
+      console.warn(`[Generate-Report] Ownership violation: user ${auth.user.id} tried to access session owned by ${sessionData.created_by}`);
+      return new Response(JSON.stringify({ error: 'Forbidden: You do not own this session' }), {
+        status: 403,
         headers: { "Content-Type": "application/json" }
       });
     }

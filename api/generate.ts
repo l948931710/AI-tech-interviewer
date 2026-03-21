@@ -40,6 +40,13 @@ export default async function handler(req: Request) {
 
   console.log(`=== API/GENERATE (streaming) TRIGGERED by user ${auth.user.id} ===`);
 
+  // C2 fix: Only allow models that the system actively uses
+  const ALLOWED_MODELS = new Set([
+    "gemini-3-flash-preview",
+    "gemini-3.1-pro-preview",
+    "gemini-2.5-flash-preview-tts",
+  ]);
+
   try {
     const ai = getAI();
     const body = await req.json();
@@ -47,6 +54,14 @@ export default async function handler(req: Request) {
 
     if (!model || !contents) {
       return new Response(JSON.stringify({ error: "Missing required fields: model or contents" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    if (!ALLOWED_MODELS.has(model)) {
+      console.warn(`[Generate-Stream] Rejected disallowed model: ${model} by user ${auth.user.id}`);
+      return new Response(JSON.stringify({ error: "Model not allowed" }), {
         status: 400,
         headers: { "Content-Type": "application/json" }
       });

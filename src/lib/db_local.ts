@@ -24,9 +24,10 @@ function saveSessions(sessions: Record<string, InterviewSession>) {
 }
 
 export const dbLocal = {
-  createSession: async (data: Omit<InterviewSession, 'id' | 'createdAt' | 'status' | 'transcript' | 'report'>): Promise<string> => {
+  createSession: async (data: Omit<InterviewSession, 'id' | 'createdAt' | 'status' | 'transcript' | 'report' | 'inviteToken'>): Promise<{ id: string; inviteToken: string }> => {
     const sessions = getSessions();
     const id = Date.now().toString(36) + Math.random().toString(36).substr(2);
+    const inviteToken = crypto.randomUUID();
     
     sessions[id] = {
       id,
@@ -34,11 +35,12 @@ export const dbLocal = {
       status: 'PENDING',
       transcript: [],
       report: null,
+      inviteToken,
       ...data
     };
     
     saveSessions(sessions);
-    return id;
+    return { id, inviteToken };
   },
 
   getSession: async (id: string): Promise<InterviewSession | null> => {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { db, InterviewSession } from '../../lib/db';
 import { InterviewScreen } from '../../components/InterviewScreen';
 import { 
@@ -22,6 +22,7 @@ type VoiceState = 'idle' | 'evaluating' | 'preparing' | 'speaking' | 'reminder';
 
 export default function InterviewPortal() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   
   const [session, setSession] = useState<InterviewSession | null>(null);
@@ -76,6 +77,14 @@ export default function InterviewPortal() {
         // C1 fix: Block access if session is already being used by another candidate
         if (loadSession.status === 'IN_PROGRESS') {
           alert('This interview session is already in progress.');
+          navigate('/', { replace: true });
+          return;
+        }
+
+        // C3 fix: Verify invite token before granting access
+        const urlToken = searchParams.get('token');
+        if (loadSession.inviteToken && urlToken !== loadSession.inviteToken) {
+          alert('Invalid or missing interview token. Please use the link provided by HR.');
           navigate('/', { replace: true });
           return;
         }

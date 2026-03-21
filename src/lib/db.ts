@@ -20,12 +20,15 @@ export interface InterviewSession {
   
   // Data generated post-interview
   report?: InterviewReport | null;
+
+  // C3 fix: secure invite token for candidate access
+  inviteToken?: string;
 }
 
 const USE_LOCAL = import.meta.env.VITE_USE_LOCAL_DB === 'true';
 
 export const db = {
-  createSession: (data: Omit<InterviewSession, 'id' | 'createdAt' | 'status' | 'transcript' | 'report'>) => 
+  createSession: (data: Omit<InterviewSession, 'id' | 'createdAt' | 'status' | 'transcript' | 'report' | 'inviteToken'>) => 
     USE_LOCAL ? dbLocal.createSession(data) : dbSupabase.createSession(data),
 
   getSession: (id: string) => 

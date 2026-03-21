@@ -8,6 +8,7 @@ import { ArrowLeft, CheckCircle, Copy } from 'lucide-react';
 export default function CreateInterview() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [createdSessionId, setCreatedSessionId] = useState<string | null>(null);
+  const [createdInviteToken, setCreatedInviteToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
 
@@ -21,7 +22,7 @@ export default function CreateInterview() {
       }
 
       // Instead of starting the interview, we save it to the DB
-      const sessionId = await db.createSession({
+      const { id: sessionId, inviteToken } = await db.createSession({
         jdText: jd,
         jobRoleContext: analysis.jobRoleContext,
         candidateInfo: analysis.candidateInfo,
@@ -29,6 +30,7 @@ export default function CreateInterview() {
       });
 
       setCreatedSessionId(sessionId);
+      setCreatedInviteToken(inviteToken);
     } catch (error) {
       console.error("Setup failed:", error);
       alert("Failed to generate interview plan. Please check the console.");
@@ -38,7 +40,7 @@ export default function CreateInterview() {
   };
 
   const getInviteLink = () => {
-    return `${window.location.origin}/invite/${createdSessionId}`;
+    return `${window.location.origin}/invite/${createdSessionId}?token=${createdInviteToken}`;
   };
 
   const handleCopy = () => {
