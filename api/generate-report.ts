@@ -12,10 +12,9 @@ import { verifyAuth } from "./api-auth";
  * This prevents candidates from tampering with their own evaluation.
  */
 
-// Use Node.js runtime with extended timeout for report generation.
-// Edge Runtime has a 30s hard limit which Gemini 3.1 Pro often exceeds
-// for complex structured report generation.
-export const config = { maxDuration: 60 };
+// Edge Runtime: 30s limit on all plans (vs 10s for Serverless on Hobby plan).
+// Report generation with Gemini Pro must complete within 30s.
+export const config = { runtime: 'edge' };
 
 // Module-level SDK cache
 let cachedAI: GoogleGenAI | null = null;
