@@ -80,6 +80,38 @@ export default function UpdatePassword() {
     navigate('/hr/dashboard'); 
   };
 
+  // Guard: Show loading while verifying session
+  if (hasValidSession === null) {
+    return (
+      <div className="bg-background text-on-background min-h-screen flex items-center justify-center font-sans">
+        <div className="text-center">
+          <div className="inline-flex items-center justify-center p-4 bg-surface-container-lowest rounded-xl shadow-sm mb-4 animate-pulse">
+            <Network className="text-primary w-9 h-9" />
+          </div>
+          <p className="font-label text-sm text-outline">{authStatusMsg}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Guard: No valid session — block access
+  if (hasValidSession === false) {
+    return (
+      <div className="bg-background text-on-background min-h-screen flex items-center justify-center font-sans">
+        <div className="text-center max-w-md px-6">
+          <div className="inline-flex items-center justify-center p-4 bg-red-50 rounded-xl shadow-sm mb-4">
+            <ShieldCheck className="text-red-400 w-9 h-9" />
+          </div>
+          <h1 className="font-headline text-2xl font-extrabold tracking-tight text-on-surface mb-2">Access Denied</h1>
+          <p className="font-body text-sm text-outline mb-6">
+            This page requires a valid invitation link. Please check your email for the invitation from your administrator, and open the link in a browser (not inside the email app).
+          </p>
+          <p className="font-label text-[10px] text-outline/60 uppercase tracking-wider">{authStatusMsg}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-background text-on-background min-h-screen flex flex-col font-sans">
       {/* Shared TopNavBar */}
