@@ -64,7 +64,7 @@ function getSupabaseAdmin() {
   });
 }
 
-export default async function handler(req: Request) {
+export async function handleReportRequest(req: Request) {
   if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
@@ -330,5 +330,44 @@ A: ${t.answer}
       status: 500,
       headers: { "Content-Type": "application/json" }
     });
+  }
+}
+
+// Adapter for Vercel Node runtime
+export default async function handler(req: any, res?: any) {
+  // If running locally via Vite proxy, req is already a Web Request
+  if (req instanceof Request || typeof req.json === 'function') {
+    return handleReportRequest(req);
+  }
+
+  // Vercel Node Runtime: reconstruct Web Request
+  const protocol = req.headers['x-forwarded-proto'] || 'http';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+  const url = `${protocol}://${host}${req.url}`;
+  
+  let bodyStr: string | undefined;
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+    bodyStr = typeof req.body === 'object' ? JSON.stringify(req.body) : req.body;
+  }
+
+  const webReq = new Request(url, {
+    method: req.method,
+    headers: req.headers as HeadersInit,
+    body: bodyStr
+  });
+
+  try {
+    const webRes = await handleReportRequest(webReq);
+    
+    webRes.headers.forEach((val, key) => {
+      res.setHeader(key, val);
+    });
+    
+    res.status(webRes.status);
+    const text = await webRes.text();
+    res.send(text);
+  } catch (error: any) {
+    console.error("Adapter error:", error);
+    res.status(500).json({ error: error.message || "Internal Adapter Error" });
   }
 }
