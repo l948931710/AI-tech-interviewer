@@ -34,9 +34,11 @@ async function verifyAuth(req: Request): Promise<
  * This prevents candidates from tampering with their own evaluation.
  */
 
-// Node.js Serverless Runtime: inherits maxDuration: 60 from vercel.json.
+// Node.js Serverless: maxDuration 60s supported on Hobby plan.
 // Edge Runtime is hard-capped at 30s which is too short for Gemini Pro.
-// Vercel Node.js Serverless supports the Web API (Request/Response) pattern via default export.
+export const config = {
+  maxDuration: 60
+};
 
 // Module-level SDK cache
 let cachedAI: GoogleGenAI | null = null;
