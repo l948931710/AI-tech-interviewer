@@ -34,9 +34,9 @@ async function verifyAuth(req: Request): Promise<
  * This prevents candidates from tampering with their own evaluation.
  */
 
-// Edge Runtime: 30s limit on all plans (vs 10s for Serverless on Hobby plan).
-// Report generation with Gemini Pro must complete within 30s.
-export const config = { runtime: 'edge' };
+// Node.js Serverless Runtime: inherits maxDuration: 60 from vercel.json.
+// Edge Runtime is hard-capped at 30s which is too short for Gemini Pro.
+// Vercel Node.js Serverless supports the Web API (Request/Response) pattern via default export.
 
 // Module-level SDK cache
 let cachedAI: GoogleGenAI | null = null;

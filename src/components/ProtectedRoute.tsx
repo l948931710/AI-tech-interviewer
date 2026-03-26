@@ -1,28 +1,61 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Session } from '@supabase/supabase-js';
+
+// Maximum session age before forcing re-login (8 hours)
+const MAX_SESSION_AGE_MS = 8 * 60 * 60 * 1000;
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
+    const verifySession = async () => {
+      try {
+        // 1. Server-side validation: getUser() makes a network request to Supabase
+        //    to verify the token is actually valid, unlike getSession() which only reads localStorage
+        const { data: { user }, error } = await supabase.auth.getUser();
+        
+        if (error || !user) {
+          // Token is invalid or expired — clear local session and redirect
+          await supabase.auth.signOut();
+          setIsAuthenticated(false);
+          return;
+        }
 
-    // Listen for auth changes
+        // 2. Session age check: force re-login after MAX_SESSION_AGE_MS
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const issuedAt = session.expires_at 
+            ? (session.expires_at * 1000) - (3600 * 1000) // expires_at - 1hr (default JWT lifetime) = issued_at
+            : 0;
+          const sessionAge = Date.now() - issuedAt;
+          
+          if (sessionAge > MAX_SESSION_AGE_MS) {
+            console.log('[Auth] Session expired (age check). Forcing re-login.');
+            await supabase.auth.signOut();
+            setIsAuthenticated(false);
+            return;
+          }
+        }
+
+        setIsAuthenticated(true);
+      } catch (e) {
+        console.error('[Auth] Verification failed:', e);
+        setIsAuthenticated(false);
+      }
+    };
+
+    verifySession();
+
+    // Listen for auth changes (e.g. logout from another tab)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+      setIsAuthenticated(!!session);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  if (loading) {
+  if (isAuthenticated === null) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50 text-gray-400">
         <div className="animate-pulse flex flex-col items-center">
@@ -33,8 +66,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     );
   }
 
-  // Redirect unauthenticated users to the login screen
-  if (!session) {
+  if (!isAuthenticated) {
     return <Navigate to="/hr" replace />;
   }
 
