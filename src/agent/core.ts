@@ -7,8 +7,20 @@ export const MODELS = {
 };
 
 /**
- * Get the current Supabase session token for authenticated API calls.
- * Returns empty object if no session (e.g. during local dev with USE_LOCAL_DB=true).
+ * Module-level interview context for candidate auth.
+ * Set once when the InterviewPortal loads a valid session.
+ */
+let interviewContext: { sessionId: string; inviteToken: string } | null = null;
+
+export function setInterviewContext(sessionId: string, inviteToken: string) {
+  interviewContext = { sessionId, inviteToken };
+}
+
+/**
+ * Get auth headers for API calls.
+ * - HR users: returns Supabase JWT Bearer token
+ * - Candidates: returns X-Interview-Token + X-Session-Id headers
+ * - Fallback: returns empty object (e.g. local dev)
  */
 export async function getAuthHeaders(): Promise<Record<string, string>> {
   try {
@@ -19,8 +31,18 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
   } catch {
     // Silently fall through — local dev without Supabase will have no session
   }
+
+  // Fallback: candidate interview token
+  if (interviewContext) {
+    return {
+      'X-Interview-Token': interviewContext.inviteToken,
+      'X-Session-Id': interviewContext.sessionId,
+    };
+  }
+
   return {};
 }
+
 
 export function parseJsonResponse<T>(text: string | undefined): T {
   let t = text || "{}";

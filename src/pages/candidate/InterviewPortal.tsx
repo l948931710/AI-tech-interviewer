@@ -11,7 +11,7 @@ import {
   StructuredInterviewTurn,
   TurnType
 } from '../../agent';
-import { getAuthHeaders } from '../../agent/core';
+import { getAuthHeaders, setInterviewContext } from '../../agent/core';
 import { useAudio, generateTTSStream, generateTTS } from '../../voice';
 import { Loader2, Camera as CameraIcon, Mic, Wifi, ArrowRight, Check } from 'lucide-react';
 
@@ -100,6 +100,12 @@ export default function InterviewPortal() {
         }
         
         setSession(loadSession);
+
+        // Set interview context for candidate API auth (invite token)
+        if (urlToken && loadSession.id) {
+          setInterviewContext(loadSession.id, urlToken);
+        }
+
         const mem = new InterviewMemory(loadSession.claims, loadSession.jobRoleContext);
         setMemory(mem);
         
