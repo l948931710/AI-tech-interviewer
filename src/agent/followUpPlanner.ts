@@ -34,7 +34,7 @@ export async function getNextInterviewStep(
     
     // If this is a consecutive non-answer (2nd+), skip to next claim or end
     if (consecutiveNonAnswers >= 1) {
-      if (nextClaim) {
+      if (nextClaim && memory.getConsecutiveFailedClaims() < 2) {
         const fallbackQ = `好的，关于这点我了解了。接下来我们聊聊你的另一段经历：${nextClaim.experienceName || '相关项目'}。关于"${nextClaim.claim}"，你能详细说说吗？`;
         return {
           answerStatus: 'non_answer',
@@ -47,13 +47,19 @@ export async function getNextInterviewStep(
           lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
         };
       } else {
-        const fallbackQ = "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！";
+        const rationale = memory.getConsecutiveFailedClaims() >= 2 
+          ? '[FastPath] Consecutive non-answers and reached 3 consecutive failed claims.' 
+          : '[FastPath] Consecutive non-answers and no more claims.';
+        const fallbackQ = memory.getConsecutiveFailedClaims() >= 2 
+          ? "看来你在这几个方面都不太熟悉，没关系。那我们今天的面试就先到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！" 
+          : "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！";
+        
         return {
           answerStatus: 'non_answer',
           decision: 'END_INTERVIEW',
           nextQuestion: fallbackQ,
           spokenQuestion: fallbackQ,
-          decisionRationale: '[FastPath] Consecutive non-answers and no more claims.',
+          decisionRationale: rationale,
           coveredPoints: previouslyCoveredPoints || [],
           missingPoints: mustVerifyPoints.filter(p => !(previouslyCoveredPoints || []).includes(p)),
           lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
@@ -244,13 +250,20 @@ export async function getNextInterviewStep(
         : "[Deterministic Override] Max follow-ups reached and no missing points left.";
     }
   } 
-  // 5. No Next Claim Available
+  // 6. No Next Claim Available
   else if (!nextClaim && parsed.decision === 'NEXT_CLAIM') {
     parsed.decision = 'END_INTERVIEW';
     decisionOverridden = true;
     parsed.decisionRationale = "[Deterministic Override] No next claim available, ending interview.";
   }
-  // 6. Prevent Infinite Repeat Loop
+  // 7. 3 Consecutive Failed Claims Termination
+  const isCurrentClaimFailing = parsed.answerStatus === 'non_answer' || ((parsed.missingPoints || []).length === mustVerifyPoints.length && mustVerifyPoints.length > 0);
+  if (parsed.decision === 'NEXT_CLAIM' && isCurrentClaimFailing && memory.getConsecutiveFailedClaims() >= 2) {
+    parsed.decision = 'END_INTERVIEW';
+    decisionOverridden = true;
+    parsed.decisionRationale = "[Deterministic Override] Reached 3 consecutive failed claims, ending interview prematurely.";
+  }
+  // 8. Prevent Infinite Repeat Loop
   else if (parsed.decision === 'REPEAT_QUESTION' && repeatCountForCurrentQuestion >= 1) {
     parsed.decision = 'FOLLOW_UP';
     // We don't set decisionOverridden = true here because we don't have a generic FOLLOW_UP fallback question.
@@ -277,7 +290,10 @@ export async function getNextInterviewStep(
       parsed.nextQuestion = fallbackQ;
       parsed.spokenQuestion = fallbackQ;
     } else if (parsed.decision === 'END_INTERVIEW') {
-      const fallbackQ = "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！";
+      const isFailedEnding = parsed.decisionRationale.includes("3 consecutive failed claims");
+      const fallbackQ = isFailedEnding 
+        ? "看来你在这几个方面都不太熟悉，没关系。那我们今天的面试就先到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！"
+        : "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！";
       parsed.nextQuestion = fallbackQ;
       parsed.spokenQuestion = fallbackQ;
     } else if (parsed.decision === 'FOLLOW_UP') {

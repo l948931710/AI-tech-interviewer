@@ -39,6 +39,7 @@ export class InterviewMemory {
   private totalQuestionsAsked: number;
   private totalNonAnswers: number;
   private failedClaimsCount: number;
+  private consecutiveFailedClaims: number;
   private isInterviewEnded: boolean;
 
   constructor(claims: Claim[], jobRoleContext: string) {
@@ -51,6 +52,7 @@ export class InterviewMemory {
     this.totalQuestionsAsked = 0;
     this.totalNonAnswers = 0;
     this.failedClaimsCount = 0;
+    this.consecutiveFailedClaims = 0;
     this.isInterviewEnded = false;
   }
 
@@ -91,6 +93,10 @@ export class InterviewMemory {
 
   public getFailedClaimsCount(): number {
     return this.failedClaimsCount;
+  }
+
+  public getConsecutiveFailedClaims(): number {
+    return this.consecutiveFailedClaims;
   }
 
   public getIsInterviewEnded(): boolean {
@@ -204,9 +210,13 @@ export class InterviewMemory {
         currentState.isCompleted = true;
         
         // If it was skipped due to non_answer, or otherwise aborted early
-        if (evaluation.answerStatus === 'non_answer' || currentState.missingPoints.length === currentState.claim.mustVerify.length) {
+        if (evaluation.answerStatus === 'non_answer' || (currentState.missingPoints.length === currentState.claim.mustVerify.length && currentState.claim.mustVerify.length > 0)) {
           currentState.isSkipped = true;
           this.failedClaimsCount++;
+          this.consecutiveFailedClaims++;
+        } else {
+          // If the claim was successfully covered, reset the consecutive failure counter
+          this.consecutiveFailedClaims = 0;
         }
       }
       
