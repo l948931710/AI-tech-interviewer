@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, InterviewSession } from '../../lib/db';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 import { 
   Users, FileText, Plus, Copy, CheckCircle, 
   LayoutDashboard, Briefcase, Settings, Search, 
@@ -39,6 +40,7 @@ const calculateDuration = (transcript: any[]) => {
 
 export default function Dashboard() {
   const [sessions, setSessions] = useState<InterviewSession[]>([]);
+  const navigate = useNavigate();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'candidates' | 'reports'>('dashboard');
   const [reportFilter, setReportFilter] = useState<'ALL' | 'COMPLETED' | 'IN_PROGRESS' | 'PENDING'>('ALL');
@@ -164,6 +166,16 @@ export default function Dashboard() {
               <p className="text-sm font-bold text-slate-900 truncate">管理员</p>
               <p className="text-xs text-slate-500 truncate">招聘团队</p>
             </div>
+            <button
+              onClick={async () => {
+                await supabase.auth.signOut();
+                navigate('/hr', { replace: true });
+              }}
+              title="退出登录"
+              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <LogOut size={18} />
+            </button>
           </div>
         </div>
       </aside>
