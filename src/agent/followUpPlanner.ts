@@ -22,6 +22,61 @@ export async function getNextInterviewStep(
   const totalQuestionsAskedForCurrentClaim = memory.getTotalQuestionsForCurrentClaim() + 1; // +1 for the current uncommitted turn
   const consecutiveNonAnswers = memory.getConsecutiveNonAnswers();
 
+  // ═══════════════════════════════════════════════════════════════════
+  // FAST PATH: Skip LLM call for obvious non-answers (saves 3-10s)
+  // ═══════════════════════════════════════════════════════════════════
+  const trimmedAnswer = answer.trim();
+  const NON_ANSWER_PATTERNS = /^(不知道|不清楚|不了解|没做过|没有|不会|不记得|不太清楚|不太了解|不太知道|我不知道|我不清楚|我不了解|我没做过|我不会|我不记得|没什么|没有了|就这些|说不上来|想不起来|pass|skip|i don'?t know|no idea|not sure|i'?m not sure)$/i;
+  
+  if (trimmedAnswer.length < 30 && NON_ANSWER_PATTERNS.test(trimmedAnswer)) {
+    console.log(`[FastPath] Detected obvious non-answer: "${trimmedAnswer}"`);
+    const mustVerifyPoints = currentClaim.mustVerify || [];
+    
+    // If this is a consecutive non-answer (2nd+), skip to next claim or end
+    if (consecutiveNonAnswers >= 1) {
+      if (nextClaim) {
+        const fallbackQ = `好的，关于这点我了解了。接下来我们聊聊你的另一段经历：${nextClaim.experienceName || '相关项目'}。关于"${nextClaim.claim}"，你能详细说说吗？`;
+        return {
+          answerStatus: 'non_answer',
+          decision: 'NEXT_CLAIM',
+          nextQuestion: fallbackQ,
+          spokenQuestion: fallbackQ,
+          decisionRationale: '[FastPath] Consecutive non-answers, skipping claim.',
+          coveredPoints: previouslyCoveredPoints || [],
+          missingPoints: mustVerifyPoints.filter(p => !(previouslyCoveredPoints || []).includes(p)),
+          lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
+        };
+      } else {
+        const fallbackQ = "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！";
+        return {
+          answerStatus: 'non_answer',
+          decision: 'END_INTERVIEW',
+          nextQuestion: fallbackQ,
+          spokenQuestion: fallbackQ,
+          decisionRationale: '[FastPath] Consecutive non-answers and no more claims.',
+          coveredPoints: previouslyCoveredPoints || [],
+          missingPoints: mustVerifyPoints.filter(p => !(previouslyCoveredPoints || []).includes(p)),
+          lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
+        };
+      }
+    }
+    
+    // First non-answer: give them one more chance with a gentle followup
+    const fallbackQ = "没关系，那你能换个角度聊聊你在这段经历中负责的具体工作吗？比如你印象最深的一个技术挑战？";
+    return {
+      answerStatus: 'non_answer',
+      decision: 'FOLLOW_UP',
+      followUpIntent: 'CLARIFY_GAP',
+      nextQuestion: fallbackQ,
+      spokenQuestion: fallbackQ,
+      decisionRationale: '[FastPath] First non-answer, giving one more chance.',
+      coveredPoints: previouslyCoveredPoints || [],
+      missingPoints: mustVerifyPoints.filter(p => !(previouslyCoveredPoints || []).includes(p)),
+      lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
+    };
+  }
+  // ═══════════════════════════════════════════════════════════════════
+
   const historyText = flatHistory.length > 0
     ? flatHistory.slice(-2).map(t => `Q: ${t.q}\nA: ${t.a}`).join('\n\n')
     : 'None';
