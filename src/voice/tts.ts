@@ -13,7 +13,7 @@ export async function* generateTTSStream(text: string): AsyncGenerator<string, v
   // Vercel Edge Functions have a 30s limit; cold start + Gemini TTS generation
   // can take 10-20s on first request.
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
 
   const response = await fetch(`${baseUrl}/tts-stream`, {
     method: 'POST',
@@ -78,7 +78,7 @@ export async function generateTTS(text: string): Promise<string | null> {
     // Use maxRetries = 1 for TTS so it fails fast and immediately uses the browser fallback TTS
     const response = await withRetry(() => callAiBackend(
       MODELS.TTS,
-      [{ parts: [{ text: `Read the following text aloud exactly as written:\n\n${text}` }] }],
+      [{ parts: [{ text: `You are a professional female AI interviewer. Maintain a calm, warm, and authoritative tone throughout. Speak clearly and at a moderate pace. Read the following text aloud exactly as written.\n\n${text}` }] }],
       {
         responseModalities: ["AUDIO"],
         speechConfig: {

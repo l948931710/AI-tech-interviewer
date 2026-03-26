@@ -42,7 +42,7 @@ export default async function handler(req: Request) {
 
   try {
     const ai = getAI();
-    const { text, voiceName } = await req.json();
+    const { text } = await req.json();
 
     if (!text) {
       return new Response(JSON.stringify({ error: "Missing required field: text" }), {
@@ -51,16 +51,19 @@ export default async function handler(req: Request) {
       });
     }
 
-    console.log(`[TTS-Stream] Generating audio for ${text.length} chars, voice=${voiceName || 'Kore'}`);
+    console.log(`[TTS-Stream] Generating audio for ${text.length} chars, voice=Kore`);
+
+    const VOICE_NAME = 'Kore';
+    const TTS_SYSTEM_PROMPT = 'You are a professional female AI interviewer. Maintain a calm, warm, and authoritative tone throughout. Speak clearly and at a moderate pace. Read the following text aloud exactly as written.';
 
     const streamResponse = await ai.models.generateContentStream({
       model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: `Read the following text aloud exactly as written:\n\n${text}` }] }],
+      contents: [{ parts: [{ text: `${TTS_SYSTEM_PROMPT}\n\n${text}` }] }],
       config: {
         responseModalities: ["AUDIO"],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' },
+            prebuiltVoiceConfig: { voiceName: VOICE_NAME },
           },
         },
       }

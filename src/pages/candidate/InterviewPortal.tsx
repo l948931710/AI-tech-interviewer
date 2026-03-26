@@ -148,7 +148,7 @@ export default function InterviewPortal() {
       // Safety timeout: abort if no audio chunk arrives within 12s.
       let cancelTimeout: () => void;
       const timeoutPromise = new Promise<void>((_, reject) => {
-        const id = setTimeout(() => reject(new Error('TTS timeout')), 12000);
+        const id = setTimeout(() => reject(new Error('TTS timeout')), 25000);
         cancelTimeout = () => clearTimeout(id);
       });
 
