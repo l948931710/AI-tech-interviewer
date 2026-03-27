@@ -539,7 +539,7 @@ export default function Dashboard() {
                               </div>
                             </td>
                             <td className="px-6 py-4 text-sm text-slate-600 font-medium">
-                              {session.status === 'COMPLETED' ? calculateDuration(session.transcript) : '—'}
+                              {session.status === 'COMPLETED' || session.status === 'INTERVIEW_ENDED' || session.status === 'NOT_FINISHED' ? calculateDuration(session.transcript) : '—'}
                             </td>
                             <td className="px-6 py-4">
                               {session.status === 'COMPLETED' && session.report?.overallScore ? (
