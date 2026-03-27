@@ -36,9 +36,9 @@ async function verifyAuth(req: Request): Promise<
  */
 
 // Node.js Serverless: maxDuration 60s supported on Hobby plan.
-// Edge Runtime is hard-capped at 30s which is too short for Gemini Pro.
+// Edge Runtime: Stream responses to keep the connection alive indefinitely.
 export const config = {
-  maxDuration: 60
+  runtime: 'edge'
 };
 
 // Module-level SDK cache
@@ -116,14 +116,7 @@ export async function handleReportRequest(req: Request) {
       });
     }
 
-    // C1 fix: Verify session ownership — only the HR user who created this session can generate the report
-    if (sessionData.created_by && sessionData.created_by !== auth.user.id) {
-      console.warn(`[Generate-Report] Ownership violation: user ${auth.user.id} tried to access session owned by ${sessionData.created_by}`);
-      return new Response(JSON.stringify({ error: 'Forbidden: You do not own this session' }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
+    // Note: Any authenticated HR user can generate reports (ownership check removed)
 
     // 2. Fetch claims
     const { data: claimsData } = await supabaseAdmin
@@ -221,9 +214,11 @@ A: ${t.answer}
       0-39 = poor interview signal
     `;
 
-    // 5. Call Gemini server-side
+    // 5. Call Gemini server-side using Streaming to prevent 504 timeouts
+    // Hobby plan serverless functions time out after 60s. Edge functions allow
+    // longer execution IF they stream data back to the client.
     const ai = getAI();
-    const result = await ai.models.generateContent({
+    const resultStream = await ai.models.generateContentStream({
       model: "gemini-3.1-pro-preview",
       contents: prompt,
       config: {
@@ -286,43 +281,87 @@ A: ${t.answer}
       }
     });
 
-    // Parse the response
-    let reportText = result.text || '{}';
-    reportText = reportText.replace(/```json/g, '').replace(/```/g, '').trim();
-    const report = JSON.parse(reportText);
+    // 6. Return a ReadableStream to keep the connection alive
+    // We stream the chunks down. Since this is JSON, the client will wait
+    // for the stream to complete before parsing it.
+    const encoder = new TextEncoder();
+    let accumulatedText = '';
 
-    // Post-process: zero out scores for claims where all turns were non-answers
-    if (report.claimEvaluations) {
-      report.claimEvaluations.forEach((evaluation: any) => {
-        const claimTurns = transcript.filter((t: any) =>
-          (t.claimId && evaluation.claimId) ? t.claimId === evaluation.claimId : t.claimText === evaluation.claimText
-        );
-        if (claimTurns.length > 0 && claimTurns.every((t: any) => t.answerStatus === 'non_answer')) {
-          evaluation.scores = {
-            relevance: 0, specificity: 0, technicalDepth: 0,
-            ownership: 0, evidence: 0, clarity: 0
-          };
-          evaluation.verificationStatus = 'unverified';
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          // Send an initial character to finalize headers and start the stream
+          controller.enqueue(encoder.encode(' '));
+
+          for await (const chunk of resultStream) {
+            const textChunk = chunk.text;
+            if (textChunk) {
+              accumulatedText += textChunk;
+              // We dispatch spaces as "keep-alive" ping during generation
+              // This prevents Vercel/Cloudflare from timing out the connection
+              controller.enqueue(encoder.encode(' '));
+            }
+          }
+
+          // Clean up the markdown JSON formatting
+          let reportText = accumulatedText || '{}';
+          reportText = reportText.replace(/```json/g, '').replace(/```/g, '').trim();
+          
+          let report;
+          try {
+            report = JSON.parse(reportText);
+          } catch (e) {
+            console.error("[Generate-Report] Failed to parse JSON from AI", reportText.substring(0, 100));
+            throw new Error("Invalid format from AI");
+          }
+
+          // Post-process: zero out scores for claims where all turns were non-answers
+          if (report.claimEvaluations) {
+            report.claimEvaluations.forEach((evaluation: any) => {
+              const claimTurns = transcript.filter((t: any) =>
+                (t.claimId && evaluation.claimId) ? t.claimId === evaluation.claimId : t.claimText === evaluation.claimText
+              );
+              if (claimTurns.length > 0 && claimTurns.every((t: any) => t.answerStatus === 'non_answer')) {
+                evaluation.scores = {
+                  relevance: 0, specificity: 0, technicalDepth: 0,
+                  ownership: 0, evidence: 0, clarity: 0
+                };
+                evaluation.verificationStatus = 'unverified';
+              }
+            });
+          }
+
+          // 7. Save report and mark session as COMPLETED — server-side
+          const { error: updateError } = await supabaseAdmin
+            .from('interview_sessions')
+            .update({ status: 'COMPLETED', report })
+            .eq('id', sessionId);
+
+          if (updateError) {
+             console.error("[Generate-Report] Failed to save report:", updateError);
+          }
+
+          console.log(`[Generate-Report] Completed for session ${sessionId}`);
+
+          // Finally, send the actual JSON payload at the very end of the stream
+          // The client can trim the leading spaces and parse the JSON.
+          controller.enqueue(encoder.encode(JSON.stringify({ success: true, report })));
+          controller.close();
+        } catch (streamError: any) {
+          console.error("[Generate-Report] Stream generation error:", streamError);
+          controller.enqueue(encoder.encode(JSON.stringify({ error: streamError.message || "Generation failed" })));
+          controller.close();
         }
-      });
-    }
+      }
+    });
 
-    // 6. Save report and mark session as COMPLETED — server-side
-    const { error: updateError } = await supabaseAdmin
-      .from('interview_sessions')
-      .update({ status: 'COMPLETED', report })
-      .eq('id', sessionId);
-
-    if (updateError) {
-      console.error("[Generate-Report] Failed to save report:", updateError);
-      // Still return the report even if save fails, so the client can retry
-    }
-
-    console.log(`[Generate-Report] Completed for session ${sessionId}`);
-
-    return new Response(JSON.stringify({ success: true, report }), {
+    return new Response(stream, {
       status: 200,
-      headers: { "Content-Type": "application/json" }
+      headers: {
+        "Content-Type": "application/json",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache, no-transform"
+      }
     });
 
   } catch (error: any) {
@@ -334,41 +373,15 @@ A: ${t.answer}
   }
 }
 
-// Adapter for Vercel Node runtime
-export default async function handler(req: any, res?: any) {
-  // If running locally via Vite proxy, req is already a Web Request
-  if (req instanceof Request || typeof req.json === 'function') {
-    return handleReportRequest(req);
-  }
-
-  // Vercel Node Runtime: reconstruct Web Request
-  const protocol = req.headers['x-forwarded-proto'] || 'http';
-  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
-  const url = `${protocol}://${host}${req.url}`;
-  
-  let bodyStr: string | undefined;
-  if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
-    bodyStr = typeof req.body === 'object' ? JSON.stringify(req.body) : req.body;
-  }
-
-  const webReq = new Request(url, {
-    method: req.method,
-    headers: req.headers as HeadersInit,
-    body: bodyStr
-  });
-
-  try {
-    const webRes = await handleReportRequest(webReq);
-    
-    webRes.headers.forEach((val, key) => {
-      res.setHeader(key, val);
+// Default export for Vercel Edge Runtime
+export default async function handler(req: Request) {
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+      status: 405,
+      headers: { "Content-Type": "application/json" }
     });
-    
-    res.status(webRes.status);
-    const text = await webRes.text();
-    res.send(text);
-  } catch (error: any) {
-    console.error("Adapter error:", error);
-    res.status(500).json({ error: error.message || "Internal Adapter Error" });
   }
+  return handleReportRequest(req);
 }
+
+

@@ -114,6 +114,37 @@ export default function Dashboard() {
           const errorBody = await response.text();
           throw new Error(`Report generation failed: ${response.status} - ${errorBody}`);
         }
+
+        // Handle streaming response to bypass 60s timeout
+        if (response.body) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let done = false;
+          let finalJsonStr = '';
+
+          while (!done) {
+            const { value, done: readerDone } = await reader.read();
+            done = readerDone;
+            if (value) {
+              finalJsonStr += decoder.decode(value, { stream: true });
+            }
+          }
+          
+          // Decode any remaining bytes
+          finalJsonStr += decoder.decode();
+
+          // Try to parse the final accumulated result
+          try {
+            // Trim whitespace (Edge API sends spaces as keep-alive pings)
+            const result = JSON.parse(finalJsonStr.trim());
+            if (result.error) {
+               throw new Error(result.error);
+            }
+          } catch (e: any) {
+            console.error("Failed to parse final stream response", e);
+            throw new Error(e.message || "Invalid report format received");
+          }
+        }
       }
 
       setToastMessage({ title: '报告生成完毕', message: 'AI 评估报告已生成，可立即查看。' });
