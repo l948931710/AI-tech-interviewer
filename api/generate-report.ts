@@ -289,19 +289,31 @@ A: ${t.answer}
 
     const stream = new ReadableStream({
       async start(controller) {
+        let pingInterval: any;
         try {
-          // Send an initial character to finalize headers and start the stream
+          // Send an initial character to finalize headers and start the stream immediately
           controller.enqueue(encoder.encode(' '));
+
+          // Vercel Edge can still timeout if no bytes are sent for a while (dynamic timeout)
+          // Set up a ping every 5 seconds to guarantee connection stays alive
+          pingInterval = setInterval(() => {
+            try {
+               controller.enqueue(encoder.encode(' '));
+            } catch (e) {
+               clearInterval(pingInterval);
+            }
+          }, 5000);
 
           for await (const chunk of resultStream) {
             const textChunk = chunk.text;
             if (textChunk) {
               accumulatedText += textChunk;
-              // We dispatch spaces as "keep-alive" ping during generation
-              // This prevents Vercel/Cloudflare from timing out the connection
+              // Also ping on chunk arrival
               controller.enqueue(encoder.encode(' '));
             }
           }
+
+          clearInterval(pingInterval);
 
           // Clean up the markdown JSON formatting
           let reportText = accumulatedText || '{}';
