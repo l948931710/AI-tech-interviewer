@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 
 // Inlined auth helper (Vercel Node.js serverless can't resolve cross-file imports)
+// Report generation is HR-only — requires Supabase JWT
 async function verifyAuth(req: Request): Promise<
   { user: { id: string; email?: string }; error?: never } |
   { user?: never; error: Response }
@@ -104,7 +105,7 @@ export async function handleReportRequest(req: Request) {
     // C1 fix: Validate session status to prevent abuse
     // - PENDING: interview never started, no transcript to report on
     // - COMPLETED: report already generated, prevent re-generation
-    const validStatuses = ['IN_PROGRESS', 'NOT_FINISHED'];
+    const validStatuses = ['IN_PROGRESS', 'NOT_FINISHED', 'INTERVIEW_ENDED'];
     if (!validStatuses.includes(sessionData.status)) {
       const message = sessionData.status === 'COMPLETED'
         ? 'Report already generated for this session'

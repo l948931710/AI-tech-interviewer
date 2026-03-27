@@ -6,8 +6,9 @@ import {
   Users, FileText, Plus, Copy, CheckCircle, 
   LayoutDashboard, Briefcase, Settings, Search, 
   Bell, HelpCircle, Video, Mail, CheckSquare,
-  TrendingUp, Clock, FilePlus, MoreHorizontal, LogOut, ChevronRight
+  TrendingUp, Clock, FilePlus, MoreHorizontal, LogOut, ChevronRight, Loader2
 } from 'lucide-react';
+import { getAuthHeaders } from '../../agent/core';
 import FulingLogo from '../../assets/fuling-logo.png';
 
 // Helper to format relative time for recent items (within 24 hours)
@@ -43,7 +44,8 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'candidates' | 'reports'>('dashboard');
-  const [reportFilter, setReportFilter] = useState<'ALL' | 'COMPLETED' | 'IN_PROGRESS' | 'PENDING'>('ALL');
+  const [reportFilter, setReportFilter] = useState<'ALL' | 'COMPLETED' | 'IN_PROGRESS' | 'PENDING' | 'INTERVIEW_ENDED'>('ALL');
+  const [generatingReportId, setGeneratingReportId] = useState<string | null>(null);
   
   // Toast Notification state
   const [toastMessage, setToastMessage] = useState<{title: string, message: string} | null>(null);
@@ -86,10 +88,50 @@ export default function Dashboard() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleGenerateReport = async (sessionId: string) => {
+    setGeneratingReportId(sessionId);
+    try {
+      const USE_LOCAL = import.meta.env.VITE_USE_LOCAL_DB === 'true';
+
+      if (USE_LOCAL) {
+        // Local dev: generate report client-side since server can't access localStorage
+        const { generateReport } = await import('../../agent');
+        const session = await db.getSession(sessionId);
+        if (!session) throw new Error('Session not found');
+        const report = await generateReport(session.transcript || [], session.claims);
+        await db.completeSession(sessionId, report);
+      } else {
+        // Production: generate report server-side
+        const baseUrl = `${window.location.origin}/api`;
+        const authHeaders = await getAuthHeaders();
+        const response = await fetch(`${baseUrl}/generate-report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ sessionId })
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(`Report generation failed: ${response.status} - ${errorBody}`);
+        }
+      }
+
+      setToastMessage({ title: '报告生成完毕', message: 'AI 评估报告已生成，可立即查看。' });
+      // Refresh sessions to show updated status
+      const data = await db.listSessions();
+      setSessions(data);
+    } catch (e: any) {
+      console.error('Failed to generate report:', e);
+      setToastMessage({ title: '报告生成失败', message: e.message || '请稍后重试。' });
+    } finally {
+      setGeneratingReportId(null);
+    }
+  };
+
   const activeInterviews = sessions.filter(s => s.status !== 'COMPLETED').length;
   const pendingInvites = sessions.filter(s => s.status === 'PENDING').length;
   const reportsReady = sessions.filter(s => s.status === 'COMPLETED').length;
-  
+  const interviewEndedCount = sessions.filter(s => s.status === 'INTERVIEW_ENDED').length;
   const inProgressCount = sessions.filter(s => s.status === 'IN_PROGRESS').length;
 
   return (
@@ -385,9 +427,17 @@ export default function Dashboard() {
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
                                   已评估
                                 </span>
+                              ) : session.status === 'INTERVIEW_ENDED' ? (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                                  待生成报告
+                                </span>
                               ) : session.status === 'IN_PROGRESS' ? (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/20">
                                   面试中
+                                </span>
+                              ) : session.status === 'NOT_FINISHED' ? (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-600/20">
+                                  未完成
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-500/10">
@@ -420,6 +470,7 @@ export default function Dashboard() {
                     >
                       <option value="ALL">所有状态</option>
                       <option value="COMPLETED">已评估</option>
+                      <option value="INTERVIEW_ENDED">待生成报告</option>
                       <option value="IN_PROGRESS">面试中</option>
                       <option value="PENDING">未开启</option>
                     </select>
@@ -492,14 +543,32 @@ export default function Dashboard() {
                                   {copiedId === session.id ? <CheckCircle size={14} /> : <Copy size={14} />}
                                   {copiedId === session.id ? 'Copied' : 'Copy Link'}
                                 </button>
-                              ) : (
+                              ) : session.status === 'INTERVIEW_ENDED' || session.status === 'NOT_FINISHED' ? (
+                                <button
+                                  onClick={() => handleGenerateReport(session.id)}
+                                  disabled={generatingReportId === session.id}
+                                  className={`inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg transition-colors ml-auto ${
+                                    generatingReportId === session.id
+                                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                      : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                  }`}
+                                >
+                                  {generatingReportId === session.id ? (
+                                    <><Loader2 size={14} className="animate-spin" /> 生成中...</>
+                                  ) : (
+                                    <><FileText size={14} /> 生成报告</>
+                                  )}
+                                </button>
+                              ) : session.status === 'COMPLETED' ? (
                                 <Link 
                                   to={`/hr/report/${session.id}`}
                                   className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 mt-1"
                                 >
-                                  View Report
+                                  查看报告
                                   <ChevronRight size={14} />
                                 </Link>
+                              ) : (
+                                <span className="text-xs text-slate-400 italic">—</span>
                               )}
                             </td>
                           </tr>

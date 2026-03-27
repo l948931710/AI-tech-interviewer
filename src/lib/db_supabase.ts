@@ -239,6 +239,17 @@ export const dbSupabase = {
     }
   },
 
+  markInterviewEnded: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('interview_sessions')
+      .update({ status: 'INTERVIEW_ENDED' })
+      .eq('id', id);
+
+    if (error) {
+       console.error('Error marking interview ended:', error);
+    }
+  },
+
   deleteSession: async (id: string): Promise<void> => {
     const { error } = await supabase
       .from('interview_sessions')

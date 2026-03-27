@@ -86,6 +86,14 @@ export const dbLocal = {
     }
   },
 
+  markInterviewEnded: async (id: string): Promise<void> => {
+    const sessions = getSessions();
+    if (sessions[id]) {
+      sessions[id].status = 'INTERVIEW_ENDED';
+      saveSessions(sessions);
+    }
+  },
+
   deleteSession: async (id: string): Promise<void> => {
     const sessions = getSessions();
     if (sessions[id]) {

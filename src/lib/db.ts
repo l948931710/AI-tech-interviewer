@@ -2,7 +2,7 @@ import { CandidateInfo, Claim, InterviewReport, StructuredInterviewTurn } from '
 import { dbLocal } from './db_local';
 import { dbSupabase } from './db_supabase';
 
-export type InterviewStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'NOT_FINISHED';
+export type InterviewStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'NOT_FINISHED' | 'INTERVIEW_ENDED';
 
 export interface InterviewSession {
   id: string;
@@ -46,8 +46,11 @@ export const db = {
   completeSession: (id: string, report: InterviewReport) => 
     USE_LOCAL ? dbLocal.completeSession(id, report) : dbSupabase.completeSession(id, report),
 
-  markNotFinished: (id: string) => 
+  markNotFinished: (id: string) =>
     USE_LOCAL ? dbLocal.markNotFinished(id) : dbSupabase.markNotFinished(id),
+
+  markInterviewEnded: (id: string) =>
+    USE_LOCAL ? dbLocal.markInterviewEnded(id) : dbSupabase.markInterviewEnded(id),
 
   deleteSession: (id: string) => 
     USE_LOCAL ? dbLocal.deleteSession(id) : dbSupabase.deleteSession(id)
