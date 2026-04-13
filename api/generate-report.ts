@@ -164,17 +164,19 @@ export async function handleReportRequest(req: Request) {
       });
     }
 
-    // 4. Build the report generation prompt (same as the old client-side one)
-    const historyText = transcript.map((t: any, i: number) => `
---- Turn ${i + 1} ---
-Type: ${t.turnType || 'unknown'}
-Target Claim ID: ${t.claimId || 'N/A'}
-Target Claim: ${t.claimText || 'N/A'}
-Experience: ${t.experienceName || 'N/A'}
-Answer Status (Agent Evaluated): ${t.answerStatus || 'N/A'}
-Q: ${t.question}
-A: ${t.answer}
-`).join('\n');
+    // 4. Build the report generation prompt
+    // C2 fix: Serialize the transcript explicitly via JSON to prevent candidates
+    // from breaking out of the markdown table and issuing system override commands in their answers.
+    const historyData = transcript.map((t: any, i: number) => ({
+      turn_number: i + 1,
+      turn_type: t.turnType || 'unknown',
+      target_claim: t.claimText || 'N/A',
+      experience: t.experienceName || 'N/A',
+      agent_evaluation: t.answerStatus || 'N/A',
+      question_asked: t.question,
+      candidate_answer: t.answer
+    }));
+    const historyText = JSON.stringify(historyData, null, 2);
 
     const prompt = `
       You are an expert technical hiring manager.

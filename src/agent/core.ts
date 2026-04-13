@@ -23,21 +23,23 @@ export function setInterviewContext(sessionId: string, inviteToken: string) {
  * - Fallback: returns empty object (e.g. local dev)
  */
 export async function getAuthHeaders(): Promise<Record<string, string>> {
+  // Candidate priority: If we are actively in an interview session,
+  // we must authenticate as the candidate to access the sandboxed backend.
+  if (interviewContext) {
+    return {
+      'X-Interview-Token': interviewContext.inviteToken,
+      'X-Session-Id': interviewContext.sessionId,
+    };
+  }
+
+  // Fallback: HR users authenticate with JWT
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.access_token) {
       return { 'Authorization': `Bearer ${session.access_token}` };
     }
   } catch {
-    // Silently fall through — local dev without Supabase will have no session
-  }
-
-  // Fallback: candidate interview token
-  if (interviewContext) {
-    return {
-      'X-Interview-Token': interviewContext.inviteToken,
-      'X-Session-Id': interviewContext.sessionId,
-    };
+    // Silently fall through
   }
 
   return {};
@@ -50,7 +52,7 @@ export function parseJsonResponse<T>(text: string | undefined): T {
   return JSON.parse(t) as T;
 }
 
-export async function callAiBackend(model: string, contents: any, config?: any) {
+export async function callAiBackend(model: string, contents: any, config?: any, onChunk?: (chunk: { text?: string, audioData?: string }) => void) {
   const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:5173/api';
   const authHeaders = await getAuthHeaders();
 
@@ -99,6 +101,9 @@ export async function callAiBackend(model: string, contents: any, config?: any) 
         }
         if (parsed.audioData) {
           lastAudioData = parsed.audioData;
+        }
+        if (onChunk) {
+          onChunk({ text: parsed.text, audioData: parsed.audioData });
         }
       } catch (e: any) {
         if (e.message && !e.message.includes('JSON')) {

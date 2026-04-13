@@ -57,7 +57,7 @@ export async function verifyAuth(req: Request): Promise<
 
     if (!sessionError && sessionData &&
         sessionData.invite_token === interviewToken &&
-        (sessionData.status === 'IN_PROGRESS' || sessionData.status === 'PENDING')) {
+        (sessionData.status === 'IN_PROGRESS' || sessionData.status === 'PENDING' || sessionData.status === 'NOT_FINISHED')) {
       return { user: { id: `candidate-${sessionId}` } };
     }
 

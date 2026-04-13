@@ -8,9 +8,9 @@ import { useASR } from './useASR';
 import { usePlaybackControl } from './usePlaybackControl';
 import { useState, useEffect, useRef } from 'react';
 
-export function useAudio() {
-  const asr = useASR();
-  const playback = usePlaybackControl();
+export function useAudio(language: 'zh-CN' | 'en-US' = 'zh-CN') {
+  const asr = useASR(language);
+  const playback = usePlaybackControl(language);
 
   return {
     ...asr,

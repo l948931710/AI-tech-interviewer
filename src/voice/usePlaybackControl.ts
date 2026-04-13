@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 
-export function usePlaybackControl() {
+export function usePlaybackControl(language: 'zh-CN' | 'en-US' = 'zh-CN') {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const playbackIdRef = useRef<number>(0);
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
@@ -187,13 +187,16 @@ export function usePlaybackControl() {
       if (myId !== playbackIdRef.current) return resolve();
       
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN';
+      utterance.lang = language;
       utterance.rate = 1.0;
       
       const voices = window.speechSynthesis.getVoices();
-      const zhVoice = voices.find(v => v.lang.includes('zh') || v.lang.includes('cmn'));
-      if (zhVoice) {
-        utterance.voice = zhVoice;
+      const targetVoice = language === 'zh-CN' 
+        ? voices.find(v => v.lang.includes('zh') || v.lang.includes('cmn'))
+        : voices.find(v => v.lang.includes('en') && (v.lang.includes('US') || v.lang.includes('GB')));
+        
+      if (targetVoice) {
+        utterance.voice = targetVoice;
       }
 
       const timeoutId = setTimeout(() => {

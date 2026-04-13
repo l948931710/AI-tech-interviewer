@@ -137,9 +137,24 @@ export const dbSupabase = {
       .select('id, created_at, status, candidate_info, report')
       .order('created_at', { ascending: false });
 
-    if (error || !sessionsData) {
+    if (error || !sessionsData || sessionsData.length === 0) {
       console.error('Error fetching sessions:', error);
       return [];
+    }
+
+    const sessionIds = sessionsData.map((s: any) => s.id);
+    const { data: transcriptsData } = await supabase
+      .from('session_transcripts')
+      .select('session_id, timestamp')
+      .in('session_id', sessionIds)
+      .order('timestamp', { ascending: true });
+
+    const transcriptMap: Record<string, any[]> = {};
+    if (transcriptsData) {
+      transcriptsData.forEach((ts: any) => {
+        if (!transcriptMap[ts.session_id]) transcriptMap[ts.session_id] = [];
+        transcriptMap[ts.session_id].push({ timestamp: ts.timestamp });
+      });
     }
 
     return sessionsData.map((session: any) => ({
@@ -151,7 +166,7 @@ export const dbSupabase = {
       candidateInfo: session.candidate_info,
       report: session.report,
       claims: [],
-      transcript: []
+      transcript: transcriptMap[session.id] || []
     }));
   },
 
@@ -176,7 +191,11 @@ export const dbSupabase = {
       experience_name: turn.experienceName,
       turn_type: turn.turnType,
       answer_status: turn.answerStatus,
-      timestamp: turn.timestamp ? new Date(parseInt(turn.timestamp)).toISOString() : new Date().toISOString()
+      timestamp: turn.timestamp 
+        ? (!isNaN(Number(turn.timestamp)) 
+            ? new Date(parseInt(turn.timestamp)).toISOString() 
+            : new Date(turn.timestamp).toISOString()) 
+        : new Date().toISOString()
     }));
 
     // Safe pattern: insert new rows first, then delete old ones on success.

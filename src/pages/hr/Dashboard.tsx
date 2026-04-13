@@ -31,8 +31,12 @@ const calculateDuration = (transcript: any[]) => {
   const last = transcript[transcript.length - 1].timestamp;
   if (!first || !last) return 'N/A';
   
-  const start = new Date(first).getTime();
-  const end = new Date(last).getTime();
+  // If it's a numeric string, convert to Number, otherwise pass as is to Date constructor
+  const parsedStart = !isNaN(Number(first)) ? Number(first) : first;
+  const parsedEnd = !isNaN(Number(last)) ? Number(last) : last;
+  
+  const start = new Date(parsedStart).getTime();
+  const end = new Date(parsedEnd).getTime();
   if (isNaN(start) || isNaN(end)) return 'N/A';
   
   const diffMins = Math.max(1, Math.round((end - start) / 60000));

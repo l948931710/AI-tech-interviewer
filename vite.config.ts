@@ -113,6 +113,16 @@ export default defineConfig(({mode}) => {
           server.middlewares.use('/api/generate-report', (req, res) => {
             proxyToHandler(req, res, '/api/generate-report.ts');
           });
+
+          // Route: /api/agent/start (First question)
+          server.middlewares.use('/api/agent/start', (req, res) => {
+            proxyToHandler(req, res, '/api/agent/start.ts');
+          });
+
+          // Route: /api/agent/next-step (Follow up evaluation and next question)
+          server.middlewares.use('/api/agent/next-step', (req, res) => {
+            proxyToHandler(req, res, '/api/agent/next-step.ts');
+          });
         }
       }
     ],

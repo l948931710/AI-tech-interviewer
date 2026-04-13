@@ -1,4 +1,4 @@
-import { Claim, NextStep } from './types';
+import { Claim, NextStep, StructuredInterviewTurn } from './types';
 
 export type TurnType = 'intro' | 'main' | 'follow_up' | 'repeat' | 'clarify' | 'transition';
 
@@ -139,13 +139,94 @@ export class InterviewMemory {
 
   // --- Actions ---
 
-  public initializeIntroPhase(introQuestion: string, introAnswer: string, questionId: string): void {
+  public restoreFromTranscript(transcript: StructuredInterviewTurn[]): void {
+     if (!transcript || transcript.length === 0) return;
+
+     // Reset to pure empty state
+     this.introTurns = [];
+     this.claimStates = [];
+     this.currentClaimIndex = 0;
+     this.totalQuestionsAsked = 0;
+     this.totalNonAnswers = 0;
+     this.failedClaimsCount = 0;
+     this.consecutiveFailedClaims = 0;
+     this.isInterviewEnded = false;
+
+     for (let i = 0; i < transcript.length; i++) {
+        const turn = transcript[i];
+        
+        let turnType: TurnType = 'main';
+        if (['intro', 'main', 'follow_up', 'repeat', 'clarify', 'transition'].includes(turn.turnType)) {
+           turnType = turn.turnType as TurnType;
+        }
+
+        if (turnType === 'intro') {
+           this.initializeIntroPhase(turn.question, turn.answer, turn.questionId, turn.timestamp);
+           const nextTurn = transcript[i + 1];
+           if (nextTurn && nextTurn.turnType !== 'intro' && this.claims.length > 0 && this.claimStates.length === 0) {
+               // Ensure at least one claim is advanced to if we exit intro in transcript
+               this.claimStates.push(this.createInitialClaimState(this.claims[0]));
+           }
+        } else {
+           // Find the right claim to attach to
+           if (turn.claimId) {
+             const cIdx = this.claims.findIndex(c => c.id === turn.claimId);
+             if (cIdx !== -1) {
+               // Fast-forward currentClaimIndex if needed
+               while (this.currentClaimIndex < cIdx) {
+                 this.currentClaimIndex++;
+                 if (!this.claimStates[this.currentClaimIndex]) {
+                   this.claimStates.push(this.createInitialClaimState(this.claims[this.currentClaimIndex]));
+                 }
+               }
+             }
+           }
+           
+           this.addTurnToCurrentClaim(turn.question, turn.answer, turnType, turn.questionId, turn.timestamp);
+           
+           // Mock evaluation for internal counters based on the current turn's answer status
+           // and what the NEXT turn type was
+           const nextTurn = transcript[i + 1];
+           let inferredDecision: NextStep['decision'] = 'FOLLOW_UP';
+           
+           if (!nextTurn) {
+             // We don't know the decision yet (it's the last turn). Or it ended.
+           } else if (nextTurn.turnType === 'follow_up') {
+             inferredDecision = 'FOLLOW_UP';
+           } else if (nextTurn.turnType === 'main') {
+             inferredDecision = 'NEXT_CLAIM';
+           } else if (nextTurn.turnType === 'transition') {
+             inferredDecision = 'END_INTERVIEW';
+           } else if (nextTurn.turnType === 'repeat' || nextTurn.turnType === 'clarify') {
+             inferredDecision = 'REPEAT_QUESTION';
+           }
+           
+           const evalMock: NextStep = {
+              decision: inferredDecision,
+              answerStatus: (turn.answerStatus as any) || 'answered',
+              spokenQuestion: '',
+              nextQuestion: '',
+              decisionRationale: '[Replay]',
+              coveredPoints: [],
+              missingPoints: [],
+              lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
+           };
+           this.updateLatestTurnEvaluation(evalMock);
+           
+           if (inferredDecision === 'NEXT_CLAIM' || inferredDecision === 'END_INTERVIEW') {
+              this.determineStatusAndAdvance(inferredDecision);
+           }
+        }
+     }
+  }
+
+  public initializeIntroPhase(introQuestion: string, introAnswer: string, questionId: string, timestamp?: string): void {
     this.introTurns.push({ 
       questionId, 
       q: introQuestion, 
       a: introAnswer, 
       turnType: 'intro',
-      timestamp: new Date().toISOString()
+      timestamp: timestamp || new Date().toISOString()
     });
     this.totalQuestionsAsked++;
     
@@ -155,14 +236,14 @@ export class InterviewMemory {
     }
   }
 
-  public addTurnToCurrentClaim(question: string, answer: string, turnType: TurnType, questionId: string): void {
+  public addTurnToCurrentClaim(question: string, answer: string, turnType: TurnType, questionId: string, timestamp?: string): void {
     const currentState = this.getCurrentClaimState();
     const newTurn: InterviewTurn = {
       questionId,
       q: question,
       a: answer,
       turnType,
-      timestamp: new Date().toISOString()
+      timestamp: timestamp || new Date().toISOString()
     };
 
     if (currentState) {

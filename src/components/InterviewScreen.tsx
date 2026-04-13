@@ -22,6 +22,7 @@ interface InterviewScreenProps {
   onSilenceTimeout: (level: 'voice' | 'skip') => void;
   onBargeIn?: () => void;
   onEndSession?: () => void;
+  language?: 'zh-CN' | 'en-US';
 }
 
 export function InterviewScreen({ 
@@ -36,10 +37,11 @@ export function InterviewScreen({
   onAnswerSubmit,
   onSilenceTimeout,
   onBargeIn,
-  onEndSession
+  onEndSession,
+  language = 'zh-CN'
 }: InterviewScreenProps) {
   const { videoRef, hasVideo } = useCamera();
-  const { isListening, isSpeechDetected, transcript, interimTranscript, startListening, stopListening, setTranscript } = useAudio();
+  const { isListening, isSpeechDetected, transcript, interimTranscript, startListening, stopListening, setTranscript } = useAudio(language);
   const [showCamera, setShowCamera] = useState(true);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);

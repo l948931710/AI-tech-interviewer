@@ -92,7 +92,7 @@ export interface StructuredInterviewTurn {
   claimId?: string;
   claimText?: string;
   experienceName?: string;
-  turnType?: "intro" | "main" | "follow_up" | "transition" | "closing";
+  turnType?: "intro" | "main" | "follow_up" | "transition" | "closing" | "repeat" | "clarify";
   answerStatus?: 'answered' | 'partial' | 'clarification_request' | 'non_answer';
 }
 

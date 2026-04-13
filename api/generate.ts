@@ -38,6 +38,17 @@ export default async function handler(req: Request) {
   const auth = await verifyAuth(req);
   if (auth.error) return auth.error;
 
+  // SECURITY FIX: Close the open proxy vulnerability. 
+  // Candidates (identified by 'candidate-' prefix from invite tokens) can only use specific 
+  // prompt pipelines (/api/agent/next-step). Only authorized HR users can use the open proxy.
+  if (auth.user.id.startsWith('candidate-')) {
+     console.warn(`[Generate] Security block: Candidate ${auth.user.id} attempted to use generic proxy.`);
+     return new Response(JSON.stringify({ error: "Forbidden: Candidates cannot use the generic completion proxy." }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" }
+     });
+  }
+
   console.log(`=== API/GENERATE (streaming) TRIGGERED by user ${auth.user.id} ===`);
 
   // C2 fix: Only allow models that the system actively uses

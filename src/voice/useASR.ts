@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-export function useASR() {
+export function useASR(language: 'zh-CN' | 'en-US' = 'zh-CN') {
   const [isListening, setIsListening] = useState(false);
   const [isSpeechDetected, setIsSpeechDetected] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -21,7 +21,7 @@ export function useASR() {
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.continuous = true;
       recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'zh-CN';
+      recognitionRef.current.lang = language;
 
       recognitionRef.current.onresult = (event: any) => {
         setIsSpeechDetected(true);
@@ -64,7 +64,7 @@ export function useASR() {
         }
       };
     }
-  }, []);
+  }, [language]);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening) {

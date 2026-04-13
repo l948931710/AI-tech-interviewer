@@ -25,6 +25,7 @@ export default function InterviewPortal() {
   const navigate = useNavigate();
   
   const [session, setSession] = useState<InterviewSession | null>(null);
+  const [language, setLanguage] = useState<'zh-CN' | 'en-US'>('zh-CN');
   const [appState, setAppState] = useState<'LOADING' | 'READY' | 'INTERVIEWING' | 'GENERATING_REPORT'>('LOADING');
   
   const [memory, setMemory] = useState<InterviewMemory | null>(null);
@@ -45,7 +46,7 @@ export default function InterviewPortal() {
 
   // Audio & UI State — single source of truth for voice pipeline coordination
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
-  const { playTTSStream, fallbackTTS, playTTS, stopAudio } = useAudio();
+  const { playTTSStream, fallbackTTS, playTTS, stopAudio } = useAudio(language);
 
   // Derived booleans for child component props (computed each render, never stale)
   const isEvaluating = voiceState === 'evaluating';
@@ -74,14 +75,17 @@ export default function InterviewPortal() {
         }
 
         // C1 fix: Block access if session is already being used by another candidate
+        // Wait, allow reconnect if the token matches
+        const urlToken = searchParams.get('token');
         if (loadSession.status === 'IN_PROGRESS') {
-          alert('This interview session is already in progress.');
-          navigate('/', { replace: true });
-          return;
+          if (!urlToken || (loadSession.inviteToken && urlToken !== loadSession.inviteToken)) {
+             alert('This interview session is already in progress.');
+             navigate('/', { replace: true });
+             return;
+          }
         }
 
         // C3 fix: Verify invite token before granting access
-        const urlToken = searchParams.get('token');
         if (loadSession.inviteToken && urlToken !== loadSession.inviteToken) {
           alert('Invalid or missing interview token. Please use the link provided by HR.');
           navigate('/', { replace: true });
@@ -106,31 +110,51 @@ export default function InterviewPortal() {
         }
 
         const mem = new InterviewMemory(loadSession.claims, loadSession.jobRoleContext);
-        setMemory(mem);
         
-        // Pre-fetch first question silently
-        const firstClaim = loadSession.claims[0];
-        if (firstClaim) {
-          firstQuestionPromiseRef.current = generateFirstQuestion(loadSession.candidateInfo, firstClaim, loadSession.jdText);
-          firstQuestionPromiseRef.current
-            .then(res => {
-              setFirstQuestionCache(res.question);
-              setFirstSpokenQuestionCache(res.spokenQuestion);
-              firstQuestionAudioPromiseRef.current = generateTTS(res.spokenQuestion || res.question);
-            })
-            .catch(e => console.error("Failed to pre-fetch first question", e));
+        // Restore from transcript if reconnecting
+        if (loadSession.transcript && loadSession.transcript.length > 0) {
+           mem.restoreFromTranscript(loadSession.transcript);
+           setMemory(mem);
+           setAppState('INTERVIEWING');
+           
+           // Fast-forward to interviewing state
+           const lastTurn = loadSession.transcript[loadSession.transcript.length - 1];
+           
+           // We set the "currentQuestion" to a resume message, and we'll ask the backend
+           // to generate the actual next question when the user speaks (or they can just hear "let's continue")
+           setCurrentQuestion(language === 'zh-CN' ? "欢迎回来。刚才的连接断开了，让我们继续。" : "Welcome back. We got disconnected, let's continue.");
+           setInterviewPhase('TECHNICAL');
+        } else {
+           setMemory(mem);
+           setAppState('READY');
         }
-
-        // Pre-fetch intro question TTS (text is known ahead of time)
-        const firstName = loadSession.candidateInfo.name.split(' ')[0];
-        const introText = `你好 ${firstName}，我是你的AI面试官。感谢你今天抽出时间。在我们开始讨论你的技术经历之前，你能先简单做个自我介绍吗？`;
-        introAudioPromiseRef.current = generateTTS(introText);
-
-        setAppState('READY');
       }
     };
     loadSessionData();
   }, [id, navigate]);
+
+  // Re-fetch first question and intro audio when language changes
+  useEffect(() => {
+    if (appState === 'READY' && session) {
+      const firstClaim = session.claims[0];
+      if (firstClaim) {
+        firstQuestionPromiseRef.current = generateFirstQuestion(session.candidateInfo, firstClaim, session.jdText, language);
+        firstQuestionPromiseRef.current
+          .then(res => {
+            setFirstQuestionCache(res.question);
+            setFirstSpokenQuestionCache(res.spokenQuestion);
+            firstQuestionAudioPromiseRef.current = generateTTS(res.spokenQuestion || res.question);
+          })
+          .catch(e => console.error("Failed to pre-fetch first question", e));
+      }
+
+      const firstName = session.candidateInfo.name.split(' ')[0];
+      const introText = language === 'zh-CN'
+        ? `你好 ${firstName}，我是你的AI面试官。感谢你今天抽出时间。在我们开始讨论你的技术经历之前，你能先简单做个自我介绍吗？`
+        : `Hello ${firstName}, I am your AI interviewer. Thank you for taking the time today. Before we dive into your technical experience, could you please give a brief self-introduction?`;
+      introAudioPromiseRef.current = generateTTS(introText);
+    }
+  }, [language, session, appState]);
 
   // Handle page closure / refresh
   useEffect(() => {
@@ -189,7 +213,9 @@ export default function InterviewPortal() {
     setSessionStartTime(Date.now());
 
     const firstName = session.candidateInfo.name.split(' ')[0];
-    const introQuestion = `你好 ${firstName}，我是你的AI面试官。感谢你今天抽出时间。在我们开始讨论你的技术经历之前，你能先简单做个自我介绍吗？`;
+    const introQuestion = language === 'zh-CN'
+      ? `你好 ${firstName}，我是你的AI面试官。感谢你今天抽出时间。在我们开始讨论你的技术经历之前，你能先简单做个自我介绍吗？`
+      : `Hello ${firstName}, I am your AI interviewer. Thank you for taking the time today. Before we dive into your technical experience, could you please give a brief self-introduction?`;
     
     setCurrentQuestion(introQuestion);
     setAppState('INTERVIEWING');
@@ -308,7 +334,7 @@ export default function InterviewPortal() {
            nextSpokenQ = res.spokenQuestion;
          } else if (!nextQ) {
            const firstClaim = memory!.getClaims()[0];
-           const res = await generateFirstQuestion(session!.candidateInfo, firstClaim, session!.jdText);
+           const res = await generateFirstQuestion(session!.candidateInfo, firstClaim, session!.jdText, language);
            nextQ = res.question;
            nextSpokenQ = res.spokenQuestion;
          }
@@ -334,7 +360,7 @@ export default function InterviewPortal() {
          }
       } catch (e) {
 
-        await speakQuestion("抱歉，网络出了点问题，能再重复一下吗？");
+        await speakQuestion(language === 'zh-CN' ? "抱歉，网络出了点问题，能再重复一下吗？" : "Sorry, there was a network issue. Could you repeat that?");
       }
       return;
     }
@@ -364,8 +390,8 @@ export default function InterviewPortal() {
          nextStep = {
             decision: 'END_INTERVIEW',
             answerStatus: 'answered',
-            nextQuestion: "非常感谢你的回答。我们的面试时间差不多到了，今天就先交流到这里。感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！",
-            spokenQuestion: "非常感谢你的回答。我们的面试时间差不多到了，今天就先交流到这里。感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！",
+            nextQuestion: language === 'zh-CN' ? "非常感谢你的回答。我们的面试时间差不多到了，今天就先交流到这里。感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！" : "Thank you for your answers. Our interview time is almost up, so we will wrap up here for today. Thank you for your time. Our recruiting team will stay in touch. Have a great day, goodbye!",
+            spokenQuestion: language === 'zh-CN' ? "非常感谢你的回答。我们的面试时间差不多到了，今天就先交流到这里。感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！" : "Thank you for your answers. Our interview time is almost up, so we will wrap up here for today. Thank you for your time. Our recruiting team will stay in touch. Have a great day, goodbye!",
             decisionRationale: "Reached max time limit",
             missingPoints: [], coveredPoints: [], lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
          };
@@ -374,16 +400,16 @@ export default function InterviewPortal() {
           nextStep = {
             decision: 'END_INTERVIEW',
             answerStatus: 'answered',
-            nextQuestion: "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！",
-            spokenQuestion: "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！",
+            nextQuestion: language === 'zh-CN' ? "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！" : "Thank you for your answers. We will conclude our interview here for today. Thank you for taking the time to speak with me. Our recruiting team will stay in touch. Have a great day, goodbye!",
+            spokenQuestion: language === 'zh-CN' ? "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！" : "Thank you for your answers. We will conclude our interview here for today. Thank you for taking the time to speak with me. Our recruiting team will stay in touch. Have a great day, goodbye!",
             decisionRationale: "Reached limit",
             missingPoints: [], coveredPoints: [], lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
           };
         } else {
-          nextStep = await getNextInterviewStep(currentQuestion, currentQuestionId, answer, updatedMemory, false, true, maxFollowUpsPerClaim);
+          nextStep = await getNextInterviewStep(currentQuestion, currentQuestionId, answer, updatedMemory, false, true, maxFollowUpsPerClaim, 2, language);
         }
       } else {
-        nextStep = await getNextInterviewStep(currentQuestion, currentQuestionId, answer, updatedMemory, isLastQuestionOverall, false, maxFollowUpsPerClaim);
+        nextStep = await getNextInterviewStep(currentQuestion, currentQuestionId, answer, updatedMemory, isLastQuestionOverall, false, maxFollowUpsPerClaim, 2, language);
       }
       
       updatedMemory.updateLatestTurnEvaluation(nextStep);
@@ -400,7 +426,7 @@ export default function InterviewPortal() {
         let closingStatement = nextStep.nextQuestion;
         let spokenClosingStatement = nextStep.spokenQuestion || nextStep.nextQuestion;
         if (nextStep.decision === 'NEXT_CLAIM' && !nextClaim) {
-            closingStatement = "非常感谢你的回答。我们今天的面试就到此结束了。祝你生活愉快，再见！";
+            closingStatement = language === 'zh-CN' ? "非常感谢你的回答。我们今天的面试就到此结束了。祝你生活愉快，再见！" : "Thank you for your answers. We will conclude our interview here for today. Have a great day, goodbye!";
             spokenClosingStatement = closingStatement;
         }
 
@@ -446,16 +472,16 @@ export default function InterviewPortal() {
 
     } catch (error) {
       console.error("Evaluation failed", error);
-      await speakQuestion("抱歉，我的网络好像有点问题，没能听清。你能再重复一下刚才的回答吗？");
+      await speakQuestion(language === 'zh-CN' ? "抱歉，我的网络好像有点问题，没能听清。你能再重复一下刚才的回答吗？" : "Sorry, my network seems to have an issue and I didn't hear clearly. Could you repeat your answer?");
     }
   };
 
   const handleSilenceTimeout = async (level: 'voice' | 'skip') => {
     if (voiceState !== 'idle') return;
     if (level === 'voice') {
-      await speakQuestion("你还在听吗？如果需要更多时间思考，请随时告诉我。", true);
+      await speakQuestion(language === 'zh-CN' ? "你还在听吗？如果需要更多时间思考，请随时告诉我。" : "Are you still there? Please let me know if you need more time to think.", true);
     } else if (level === 'skip') {
-      await handleAnswerSubmit("（候选人长时间未作答，跳过此问题）");
+      await handleAnswerSubmit(language === 'zh-CN' ? "（候选人长时间未作答，跳过此问题）" : "(Candidate did not answer for a long time, skipping question)");
     }
   };
 
@@ -549,7 +575,20 @@ export default function InterviewPortal() {
 
               {/* Right Column: System Check Card */}
               <div className="bg-[#F7F7F7] p-8 rounded border border-[#EAEAEA]">
-                <h3 className="text-xl font-light text-[#1A1A1A] mb-6">System Check</h3>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-light text-[#1A1A1A]">System Check</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[#555555]">Language:</span>
+                    <select 
+                      value={language} 
+                      onChange={(e) => setLanguage(e.target.value as any)}
+                      className="border border-[#EAEAEA] rounded px-2 py-1 text-sm bg-white focus:outline-none focus:border-[#118C33]"
+                    >
+                      <option value="zh-CN">🇨🇳 中文 (Chinese)</option>
+                      <option value="en-US">🇺🇸 English</option>
+                    </select>
+                  </div>
+                </div>
                 
                 <div className="space-y-0">
                   <div className="flex justify-between items-center py-4 border-b border-[#EAEAEA]">
@@ -671,6 +710,7 @@ export default function InterviewPortal() {
         onSilenceTimeout={handleSilenceTimeout}
         onBargeIn={handleBargeIn}
         onEndSession={handleEndSession}
+        language={language}
       />
     );
   }
