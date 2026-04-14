@@ -73,7 +73,9 @@ export const dbSupabase = {
     const { data: claimsData, error: claimsError } = await supabase
       .from('session_claims')
       .select('*')
-      .eq('session_id', id);
+      .eq('session_id', id)
+      .order('experience_name', { ascending: true, nullsFirst: false })
+      .order('id', { ascending: true });
 
     if (claimsError) {
       console.error('Error fetching claims:', claimsError);
@@ -170,68 +172,6 @@ export const dbSupabase = {
     }));
   },
 
-  startSession: async (id: string): Promise<void> => {
-    await supabase
-      .from('interview_sessions')
-      .update({ status: 'IN_PROGRESS' })
-      .eq('id', id)
-      .eq('status', 'PENDING');
-  },
-
-  updateTranscript: async (id: string, transcript: StructuredInterviewTurn[]): Promise<void> => {
-    if (!transcript || transcript.length === 0) return;
-
-    const rowsToInsert = transcript.map((turn, index) => ({
-      session_id: id,
-      question_id: turn.questionId,
-      question: turn.question,
-      answer: turn.answer,
-      claim_id: turn.claimId,
-      claim_text: turn.claimText,
-      experience_name: turn.experienceName,
-      turn_type: turn.turnType,
-      answer_status: turn.answerStatus,
-      timestamp: turn.timestamp 
-        ? (!isNaN(Number(turn.timestamp)) 
-            ? new Date(parseInt(turn.timestamp)).toISOString() 
-            : new Date(turn.timestamp).toISOString()) 
-        : new Date().toISOString()
-    }));
-
-    // Safe pattern: insert new rows first, then delete old ones on success.
-    // If the insert fails, old data is preserved (no data loss).
-    
-    // 1. Get IDs of existing rows (so we know what to delete after insert)
-    const { data: existingRows } = await supabase
-      .from('session_transcripts')
-      .select('id')
-      .eq('session_id', id);
-
-    const existingIds = (existingRows || []).map((r: any) => r.id);
-
-    // 2. Insert new rows first
-    const { error: insertError } = await supabase
-      .from('session_transcripts')
-      .insert(rowsToInsert);
-
-    if (insertError) {
-      console.error('Error inserting updated transcript (old data preserved):', insertError);
-      return; // Old data is still intact — no data loss
-    }
-
-    // 3. Only now delete the old rows (insert succeeded)
-    if (existingIds.length > 0) {
-      const { error: deleteError } = await supabase
-        .from('session_transcripts')
-        .delete()
-        .in('id', existingIds);
-
-      if (deleteError) {
-        console.error('Error cleaning up old transcript rows:', deleteError);
-        // Not critical — we have duplicates but no data loss
-      }
-    }
-  },
 
   completeSession: async (id: string, report: InterviewReport): Promise<void> => {
     const { error } = await supabase
@@ -244,28 +184,6 @@ export const dbSupabase = {
 
     if (error) {
       console.error('Error completing session:', error);
-    }
-  },
-
-  markNotFinished: async (id: string): Promise<void> => {
-    const { error } = await supabase
-      .from('interview_sessions')
-      .update({ status: 'NOT_FINISHED' })
-      .eq('id', id);
-
-    if (error) {
-       console.error('Error marking not finished:', error);
-    }
-  },
-
-  markInterviewEnded: async (id: string): Promise<void> => {
-    const { error } = await supabase
-      .from('interview_sessions')
-      .update({ status: 'INTERVIEW_ENDED' })
-      .eq('id', id);
-
-    if (error) {
-       console.error('Error marking interview ended:', error);
     }
   },
 

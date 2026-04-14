@@ -43,7 +43,7 @@ export default async function handler(req: Request) {
       return new Response(JSON.stringify({ error: "Session not found" }), { status: 404 });
     }
 
-    const { data: claimsData } = await supabaseAdmin.from('session_claims').select('*').eq('session_id', sessionId);
+    const { data: claimsData } = await supabaseAdmin.from('session_claims').select('*').eq('session_id', sessionId).order('experience_name', { ascending: true, nullsFirst: false }).order('id', { ascending: true });
     if (!claimsData || claimsData.length === 0) {
       return new Response(JSON.stringify({ error: "No claims in session" }), { status: 400 });
     }
@@ -99,7 +99,40 @@ export default async function handler(req: Request) {
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(rawText);
 
-    return new Response(JSON.stringify(parsed), { status: 200, headers: { "Content-Type": "application/json" } });
+    // Save the pre-computed first question to DB, and transition the session cleanly.
+    const updates: any = { 
+      status: 'IN_PROGRESS', 
+      phase: 'intro', 
+      first_question: parsed.question 
+    };
+
+    // Fix 30-minute race condition: only set started_at ONCE when the candidate clicks Begin Session
+    if (!sessionData.started_at) {
+      updates.started_at = new Date().toISOString();
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('interview_sessions')
+      .update(updates)
+      .eq('id', sessionId);
+
+    if (updateError) {
+      console.error("[Start] DB Update error:", updateError);
+      return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
+    }
+
+    const introText = language === 'zh-CN' 
+      ? "你好！欢迎参加今天的技术面试。在正式开始深入探讨你的项目之前，能先简单做个自我介绍吗？" 
+      : "Hello! Welcome to your technical interview today. Before we dive deep into your projects, could you give me a brief self-introduction?";
+
+    // We return the intro question to kick off the candidate's turn
+    return new Response(JSON.stringify({
+      nextQuestion: introText,
+      spokenQuestion: introText,
+      decision: "NEXT_CLAIM",
+      answerStatus: "answered",
+      decisionRationale: "[System] Started interview, returning intro question."
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
 
   } catch (error: any) {
     console.error("[Start] Fatal error:", error);

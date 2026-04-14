@@ -2,7 +2,7 @@ import { CandidateInfo, Claim, InterviewReport, StructuredInterviewTurn } from '
 import { dbLocal } from './db_local';
 import { dbSupabase } from './db_supabase';
 
-export type InterviewStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'NOT_FINISHED' | 'INTERVIEW_ENDED';
+export type InterviewStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'NOT_FINISHED' | 'INTERVIEW_ENDED' | 'GENERATING';
 
 export interface InterviewSession {
   id: string;

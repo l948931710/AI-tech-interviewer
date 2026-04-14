@@ -53,13 +53,7 @@ export default function InterviewPortal() {
   const isPreparingAudio = voiceState === 'preparing';
   const isAiSpeaking = voiceState === 'speaking' || voiceState === 'reminder';
   const isReminderSpeaking = voiceState === 'reminder';
-  
-  // Pre-fetching caches
-  const [firstQuestionCache, setFirstQuestionCache] = useState<string | null>(null);
-  const [firstSpokenQuestionCache, setFirstSpokenQuestionCache] = useState<string | null>(null);
-  const firstQuestionPromiseRef = useRef<Promise<{question: string, spokenQuestion: string, rationale: string}> | null>(null);
-  const firstQuestionAudioPromiseRef = useRef<Promise<string | null> | null>(null);
-  const introAudioPromiseRef = useRef<Promise<string | null> | null>(null);
+
 
   useEffect(() => {
     const loadSessionData = async () => {
@@ -133,34 +127,17 @@ export default function InterviewPortal() {
     loadSessionData();
   }, [id, navigate]);
 
-  // Re-fetch first question and intro audio when language changes
-  useEffect(() => {
-    if (appState === 'READY' && session) {
-      const firstClaim = session.claims[0];
-      if (firstClaim) {
-        firstQuestionPromiseRef.current = generateFirstQuestion(session.candidateInfo, firstClaim, session.jdText, language);
-        firstQuestionPromiseRef.current
-          .then(res => {
-            setFirstQuestionCache(res.question);
-            setFirstSpokenQuestionCache(res.spokenQuestion);
-            firstQuestionAudioPromiseRef.current = generateTTS(res.spokenQuestion || res.question);
-          })
-          .catch(e => console.error("Failed to pre-fetch first question", e));
-      }
 
-      const firstName = session.candidateInfo.name.split(' ')[0];
-      const introText = language === 'zh-CN'
-        ? `你好 ${firstName}，我是你的AI面试官。感谢你今天抽出时间。在我们开始讨论你的技术经历之前，你能先简单做个自我介绍吗？`
-        : `Hello ${firstName}, I am your AI interviewer. Thank you for taking the time today. Before we dive into your technical experience, could you please give a brief self-introduction?`;
-      introAudioPromiseRef.current = generateTTS(introText);
-    }
-  }, [language, session, appState]);
 
-  // Handle page closure / refresh
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (appState === 'INTERVIEWING' && id) {
-        db.markNotFinished(id);
+         fetch('/api/agent/update-status', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ sessionId: id, status: 'NOT_FINISHED' }),
+           keepalive: true
+         }).catch(e => console.error(e));
       }
     };
 
@@ -208,33 +185,27 @@ export default function InterviewPortal() {
   const handleStartInterview = async () => {
     if (!session || !id) return;
     
-    // Trigger live HR dashboard notification
-    await db.startSession(id);
-    setSessionStartTime(Date.now());
+    setSystemCheck('checking'); // Use UI visually as loading state
 
-    const firstName = session.candidateInfo.name.split(' ')[0];
-    const introQuestion = language === 'zh-CN'
-      ? `你好 ${firstName}，我是你的AI面试官。感谢你今天抽出时间。在我们开始讨论你的技术经历之前，你能先简单做个自我介绍吗？`
-      : `Hello ${firstName}, I am your AI interviewer. Thank you for taking the time today. Before we dive into your technical experience, could you please give a brief self-introduction?`;
-    
-    setCurrentQuestion(introQuestion);
-    setAppState('INTERVIEWING');
-
-    // Use pre-fetched intro audio for instant playback
-    let introAudio: string | null = null;
-    if (introAudioPromiseRef.current) {
-      try {
-        introAudio = await introAudioPromiseRef.current;
-      } catch (e) {
-        console.warn("Intro TTS pre-fetch failed, will use streaming:", e);
-      }
-    }
-    if (introAudio) {
-      setVoiceState('speaking');
-      await playTTS(introAudio);
-      setVoiceState('idle');
-    } else {
-      await speakQuestion(introQuestion);
+    try {
+      const startRes = await fetch('/api/agent/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: id, language })
+      });
+      
+      if (!startRes.ok) throw new Error("Failed to start session");
+      const startData = await startRes.json();
+      
+      setSessionStartTime(Date.now());
+      setCurrentQuestion(startData.nextQuestion);
+      setAppState('INTERVIEWING');
+      
+      await speakQuestion(startData.spokenQuestion || startData.nextQuestion);
+    } catch (error) {
+       console.error("Failed to start interview:", error);
+       alert("Failed to connect to the server. Please check your network and try again.");
+       setSystemCheck('completed');
     }
   };
 
@@ -279,187 +250,51 @@ export default function InterviewPortal() {
     setSystemCheck('completed');
   };
 
-  const syncTranscript = (updatedMemory: InterviewMemory) => {
-    if (!id) return;
-    const structuredTranscript: StructuredInterviewTurn[] = [];
-    
-    updatedMemory.getIntroTurns().forEach((turn) => {
-      structuredTranscript.push({
-        questionId: turn.questionId,
-        timestamp: turn.timestamp,
-        question: turn.q,
-        answer: turn.a,
-        turnType: turn.turnType as any,
-        answerStatus: turn.evaluation?.answerStatus
-      });
-    });
-    
-    updatedMemory.getClaimStates().forEach((claimState) => {
-      claimState.turns.forEach((turn, turnIndex) => {
-        structuredTranscript.push({
-          questionId: turn.questionId,
-          timestamp: turn.timestamp,
-          question: turn.q,
-          answer: turn.a,
-          claimId: claimState.claim.id,
-          claimText: claimState.claim.claim,
-          experienceName: claimState.claim.experienceName,
-          turnType: turn.turnType as any,
-          answerStatus: turn.evaluation?.answerStatus
-        });
-      });
-    });
-    
-    db.updateTranscript(id, structuredTranscript);
-    return structuredTranscript;
-  };
+
 
   const handleAnswerSubmit = async (answer: string) => {
     if (voiceState !== 'idle') return; // Guard: only accept answers when idle
     setVoiceState('evaluating');
     
-    if (interviewPhase === 'INTRO') {
-      try {
-         // Initialize Intro Phase locally, then create a new memory object to trigger React re-render
-         const updatedMemory = Object.assign(Object.create(Object.getPrototypeOf(memory)), memory);
-         updatedMemory.initializeIntroPhase(currentQuestion, answer, currentQuestionId);
-         
-         let nextQ = firstQuestionCache;
-         let nextSpokenQ = firstSpokenQuestionCache;
-         let prefetchAudio: string | null = null;
-         
-         if (!nextQ && firstQuestionPromiseRef.current) {
-           const res = await firstQuestionPromiseRef.current;
-           nextQ = res.question;
-           nextSpokenQ = res.spokenQuestion;
-         } else if (!nextQ) {
-           const firstClaim = memory!.getClaims()[0];
-           const res = await generateFirstQuestion(session!.candidateInfo, firstClaim, session!.jdText, language);
-           nextQ = res.question;
-           nextSpokenQ = res.spokenQuestion;
-         }
-         
-         if (firstQuestionAudioPromiseRef.current) {
-           prefetchAudio = await firstQuestionAudioPromiseRef.current;
-         }
-         
-         setMemory(updatedMemory);
-         setInterviewPhase('TECHNICAL');
-         setCurrentTurnType('main');
-         setCurrentQuestionId(crypto.randomUUID());
-         setCurrentQuestion(nextQ!);
-         syncTranscript(updatedMemory);
-
-         
-         if (prefetchAudio) {
-           setVoiceState('speaking');
-           await playTTS(prefetchAudio);
-           setVoiceState('idle');
-         } else {
-           await speakQuestion(nextSpokenQ || nextQ!);
-         }
-      } catch (e) {
-
-        await speakQuestion(language === 'zh-CN' ? "抱歉，网络出了点问题，能再重复一下吗？" : "Sorry, there was a network issue. Could you repeat that?");
-      }
-      return;
-    }
-
     try {
+      // 1. We just hit our unified pure-DB backend endpoint!
+      const res = await fetch('/api/agent/next-step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+           sessionId: id,
+           answer: answer,
+           question: currentQuestion,
+           questionId: currentQuestionId,
+           language: language
+        })
+      });
+      
+      if (!res.ok) throw new Error("Next step generation failed");
+      const nextStep = await res.json();
+      
+      // Update UI memory strictly for rendering visually (backend owns real DB state now)
       const updatedMemory = Object.assign(Object.create(Object.getPrototypeOf(memory)), memory) as InterviewMemory;
-      updatedMemory.addTurnToCurrentClaim(currentQuestion, answer, currentTurnType, currentQuestionId);
-      
-      const nextClaim = updatedMemory.getNextClaim();
-
-      const followUpCountForCurrentClaim = updatedMemory.getFollowUpCountForCurrentClaim();
-      const maxFollowUpsPerClaim = 2;
-      const hardLimitFollowUps = 3;
-      const isLastClaim = updatedMemory.isLastClaim();
-      const isLastQuestionForClaim = followUpCountForCurrentClaim >= hardLimitFollowUps;
-      const isLastQuestionOverall = isLastClaim && followUpCountForCurrentClaim === maxFollowUpsPerClaim - 1;
-
-      // Time Limit Check (30 mins = 1800000 ms). 
-      // If elapsed time >= 30 mins, we only have 5 mins left of the 35 min max, so force END_INTERVIEW.
-      const elapsedMs = sessionStartTime ? Date.now() - sessionStartTime : 0;
-      const maxElapsedMs = 30 * 60 * 1000;
-      const isTimeNearlyUp = elapsedMs >= maxElapsedMs;
-
-      let nextStep: NextStep;
-      
-      if (isTimeNearlyUp) {
-         nextStep = {
-            decision: 'END_INTERVIEW',
-            answerStatus: 'answered',
-            nextQuestion: language === 'zh-CN' ? "非常感谢你的回答。我们的面试时间差不多到了，今天就先交流到这里。感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！" : "Thank you for your answers. Our interview time is almost up, so we will wrap up here for today. Thank you for your time. Our recruiting team will stay in touch. Have a great day, goodbye!",
-            spokenQuestion: language === 'zh-CN' ? "非常感谢你的回答。我们的面试时间差不多到了，今天就先交流到这里。感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！" : "Thank you for your answers. Our interview time is almost up, so we will wrap up here for today. Thank you for your time. Our recruiting team will stay in touch. Have a great day, goodbye!",
-            decisionRationale: "Reached max time limit",
-            missingPoints: [], coveredPoints: [], lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
-         };
-      } else if (isLastQuestionForClaim) {
-        if (isLastClaim) {
-          nextStep = {
-            decision: 'END_INTERVIEW',
-            answerStatus: 'answered',
-            nextQuestion: language === 'zh-CN' ? "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！" : "Thank you for your answers. We will conclude our interview here for today. Thank you for taking the time to speak with me. Our recruiting team will stay in touch. Have a great day, goodbye!",
-            spokenQuestion: language === 'zh-CN' ? "非常感谢你的回答。我们今天的面试就到此结束了，感谢你抽出时间与我交流。后续如果有任何进展，我们的招聘团队会与你联系。祝你生活愉快，再见！" : "Thank you for your answers. We will conclude our interview here for today. Thank you for taking the time to speak with me. Our recruiting team will stay in touch. Have a great day, goodbye!",
-            decisionRationale: "Reached limit",
-            missingPoints: [], coveredPoints: [], lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
-          };
-        } else {
-          nextStep = await getNextInterviewStep(currentQuestion, currentQuestionId, answer, updatedMemory, false, true, maxFollowUpsPerClaim, 2, language);
-        }
-      } else {
-        nextStep = await getNextInterviewStep(currentQuestion, currentQuestionId, answer, updatedMemory, isLastQuestionOverall, false, maxFollowUpsPerClaim, 2, language);
-      }
-      
+      updatedMemory.addTurnToCurrentClaim(currentQuestion, answer, interviewPhase === 'INTRO' ? 'intro' : 'main', currentQuestionId);
       updatedMemory.updateLatestTurnEvaluation(nextStep);
-      
-      let nextTurnType: TurnType = 'main';
-      if (nextStep.decision === 'FOLLOW_UP') nextTurnType = 'follow_up';
-      else if (nextStep.decision === 'REPEAT_QUESTION') {
-        nextTurnType = nextStep.answerStatus === 'clarification_request' ? 'clarify' : 'repeat';
-      }
-      else if (nextStep.decision === 'NEXT_CLAIM') nextTurnType = 'main';
-      else if (nextStep.decision === 'END_INTERVIEW') nextTurnType = 'transition';
-      
-      if (nextStep.decision === 'END_INTERVIEW' || (nextStep.decision === 'NEXT_CLAIM' && !nextClaim)) {
-        let closingStatement = nextStep.nextQuestion;
-        let spokenClosingStatement = nextStep.spokenQuestion || nextStep.nextQuestion;
-        if (nextStep.decision === 'NEXT_CLAIM' && !nextClaim) {
-            closingStatement = language === 'zh-CN' ? "非常感谢你的回答。我们今天的面试就到此结束了。祝你生活愉快，再见！" : "Thank you for your answers. We will conclude our interview here for today. Have a great day, goodbye!";
-            spokenClosingStatement = closingStatement;
-        }
-
-        if (closingStatement) {
-          setCurrentTurnType('transition');
-          setCurrentQuestionId(crypto.randomUUID());
-          setCurrentQuestion(closingStatement);
-          syncTranscript(updatedMemory);
-          await speakQuestion(spokenClosingStatement);
-        }
-        
-        setMemory(updatedMemory);
-        await finishInterview(updatedMemory);
-        return;
-      }
-
       updatedMemory.determineStatusAndAdvance(nextStep.decision);
       
-      // PIPELINE OVERLAP: Fire TTS generation BEFORE state updates.
-      // generateTTSStream opens the SSE connection immediately, so the server
-      // starts generating audio while we're doing the fast in-memory state updates below.
-      const textToSpeak = nextStep.spokenQuestion || nextStep.nextQuestion;
-      const audioStream = generateTTSStream(textToSpeak);
-      
-      // State updates (fast, ~1ms) — happen while TTS is already generating on the server
       setMemory(updatedMemory);
-      setCurrentTurnType(nextTurnType);
+      setInterviewPhase('TECHNICAL'); // After any answer, we are technically in technical phase implicitly
       setCurrentQuestionId(crypto.randomUUID());
       setCurrentQuestion(nextStep.nextQuestion);
-      syncTranscript(updatedMemory);
       
-      // Now play the audio stream (first chunks may already be available)
+      if (nextStep.decision === 'END_INTERVIEW') {
+         await speakQuestion(nextStep.spokenQuestion || nextStep.nextQuestion);
+         navigate('/thank-you', { replace: true });
+         return;
+      }
+      
+      // 2. Stream AI voice back
+      const textToSpeak = nextStep.spokenQuestion || nextStep.nextQuestion;
+      const audioStream = generateTTSStream(textToSpeak);
       setVoiceState('preparing');
+      
       try {
         await playTTSStream(audioStream, () => {
           setVoiceState('speaking');
@@ -473,6 +308,7 @@ export default function InterviewPortal() {
     } catch (error) {
       console.error("Evaluation failed", error);
       await speakQuestion(language === 'zh-CN' ? "抱歉，我的网络好像有点问题，没能听清。你能再重复一下刚才的回答吗？" : "Sorry, my network seems to have an issue and I didn't hear clearly. Could you repeat your answer?");
+      setVoiceState('idle');
     }
   };
 
@@ -487,34 +323,20 @@ export default function InterviewPortal() {
 
   const finishInterview = async (finalMemory: InterviewMemory) => {
     if (!id || !session) return;
-    
-    try {
-      // Sync the final transcript
-      syncTranscript(finalMemory);
-
-      // Mark session as ended — report will be generated by HR from the dashboard
-      await db.markInterviewEnded(id);
-
-      // Navigate to candidate end screen immediately
-      navigate('/thank-you', { replace: true });
-    } catch (e) {
-      console.error("Failed to finalize interview", e);
-      // Still navigate away even on error — transcript was already synced incrementally
-      navigate('/thank-you', { replace: true });
-    }
+    navigate('/thank-you', { replace: true });
   };
 
   const handleEndSession = async () => {
     stopAudio();
     setVoiceState('idle');
-    if (memory && id) {
-      const isActuallyFinished = memory.getIsInterviewEnded();
-      if (isActuallyFinished) {
-        await finishInterview(memory);
-      } else {
-        db.markNotFinished(id);
-        navigate('/thank-you', { replace: true });
-      }
+    if (id) {
+       fetch('/api/agent/update-status', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ sessionId: id, status: 'NOT_FINISHED' }),
+         keepalive: true
+       }).catch(e => console.error(e));
+       navigate('/thank-you', { replace: true });
     }
   };
 

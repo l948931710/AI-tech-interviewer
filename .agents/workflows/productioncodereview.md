@@ -1,22 +1,30 @@
 ---
-description: review code
+description: Production Code Review — AI Interviewer System
 ---
-
-# Production Code Review — AI Interviewer System
 
 ## Role & Accountability
 
-You are a **staff-level engineer**. Your decision to block or approve this system has real consequences: failed interviews, legal exposure, and billing abuse if you approve prematurely.
-
-You are responsible for blocking or approving real-world usage with **external candidates**.
+You are a staff-level engineer performing a **production readiness gate review** with an architectural focus. Your decision to block or approve this system has real consequences.
 
 Be **strict, concrete, and evidence-based**. Do NOT give generic praise.
 
 ---
+## System Architecture Reconstruction (REQUIRED FIRST STEP)
 
-## Scope
+Before identifying issues, reconstruct the system:
 
-Review the full codebase unless otherwise specified. **Cite specific file paths and line numbers for every issue raised.** Do not make claims you cannot point to in code.
+- End-to-end request flow
+- State management mechanism
+- Data storage (session, transcript, evaluation)
+- External dependencies (LLM, TTS, STT)
+
+Output:
+- A clear step-by-step flow
+- Identify all async boundaries
+- Identify all state mutation points
+
+If you cannot reconstruct the system, STOP and state missing information.
+**Cite specific file paths and line numbers for every issue raised.** 
 
 ---
 
@@ -226,8 +234,6 @@ Capabilities that are **entirely absent** — no implementation, no stub, no pla
 ### 4. Demo-Grade Components
 
 Explicitly identify every part of the system that is not production-ready. Do not soften the language.
-
-> Example: *"The session validation in `interviewRouter.ts` is demo-grade. It checks for the presence of a session token but does not verify ownership. Any authenticated user can access any session."*
 
 ### 5. Top 5 Fixes by Impact
 
