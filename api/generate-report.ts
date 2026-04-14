@@ -1,5 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
+import { jsonrepair } from "jsonrepair";
+
+function generateUUID() {
+  return crypto.randomUUID();
+}
 
 // Inlined auth helper (Vercel Node.js serverless can't resolve cross-file imports)
 // Report generation is HR-only — requires Supabase JWT
@@ -74,6 +79,18 @@ export async function handleReportRequest(req: Request) {
   const auth = await verifyAuth(req);
   if (auth.error) return auth.error;
 
+  const requestId = generateUUID();
+  const startTime = Date.now();
+  
+  const logger = {
+    info: (event: string, meta: any = {}) => console.log(JSON.stringify({ level: 'INFO', event, request_id: requestId, user_id: auth.user.id, timestamp: new Date().toISOString(), latency_ms: Date.now() - startTime, ...meta })),
+    warn: (event: string, meta: any = {}) => console.warn(JSON.stringify({ level: 'WARN', event, request_id: requestId, user_id: auth.user.id, timestamp: new Date().toISOString(), latency_ms: Date.now() - startTime, ...meta })),
+    error: (event: string, meta: any = {}) => console.error(JSON.stringify({ level: 'ERROR', event, request_id: requestId, user_id: auth.user.id, timestamp: new Date().toISOString(), latency_ms: Date.now() - startTime, ...meta }))
+  };
+
+  let lockedSessionId: string | null = null;
+  let lockedSessionData: any = null;
+
   try {
     const { sessionId } = await req.json();
 
@@ -84,37 +101,32 @@ export async function handleReportRequest(req: Request) {
       });
     }
 
-    console.log(`[Generate-Report] Starting for session ${sessionId} by user ${auth.user.id}`);
+    logger.info("RequestStarted", { session_id: sessionId });
 
     const supabaseAdmin = getSupabaseAdmin();
 
-    // 1. Fetch session data from Supabase (server-side, not from client)
+    // 1. ATOMIC LOCK: Fetch and update session status to GENERATING to prevent race conditions
     const { data: sessionData, error: sessionError } = await supabaseAdmin
       .from('interview_sessions')
-      .select('*')
+      .update({ status: 'GENERATING' })
       .eq('id', sessionId)
+      .in('status', ['IN_PROGRESS', 'NOT_FINISHED', 'INTERVIEW_ENDED'])
+      .select('*')
       .single();
 
     if (sessionError || !sessionData) {
-      return new Response(JSON.stringify({ error: "Session not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-
-    // C1 fix: Validate session status to prevent abuse
-    // - PENDING: interview never started, no transcript to report on
-    // - COMPLETED: report already generated, prevent re-generation
-    const validStatuses = ['IN_PROGRESS', 'NOT_FINISHED', 'INTERVIEW_ENDED'];
-    if (!validStatuses.includes(sessionData.status)) {
-      const message = sessionData.status === 'COMPLETED'
-        ? 'Report already generated for this session'
-        : 'Session has not started yet';
-      return new Response(JSON.stringify({ error: message }), {
+      logger.error("SessionLockFailed", { error: sessionError, session_id: sessionId, status: "FAILED" });
+      return new Response(JSON.stringify({ error: "Session not found, already completed, or currently generating" }), {
         status: 409,
         headers: { "Content-Type": "application/json" }
       });
     }
+    
+    // Save state so we can roll back if it fails later
+    lockedSessionId = sessionId;
+    lockedSessionData = sessionData;
+    
+    logger.info("SessionLocked", { session_id: sessionId });
 
     // Note: Any authenticated HR user can generate reports (ownership check removed)
 
@@ -195,7 +207,7 @@ export async function handleReportRequest(req: Request) {
       4. List missingPoints for the claim (what was not verified or missing).
       5. List specific strengths and weaknesses for the claim based on the candidate's answers.
       6. Provide 1-10 scores across the specified dimensions for the claim overall.
-      7. Under each claim, nest the specific Q&A turns (turnEvaluations) that support your evaluation, along with brief notes on how that specific turn contributed to the claim's evaluation. Make sure to accurately copy the 'answerStatus' for each turn.
+      7. Under each claim, nest the specific Q&A turns (turnEvaluations) that support your evaluation. To save generation space, ONLY output the matching 'turn_number' from the Transcript (as an integer in the 'turnNumber' field) along with brief notes on how that specific turn contributed to the evaluation.
       8. EVALUATION FAIRNESS RULE: Base your core score and verification status primarily on how well the candidate handled the standardized verification rounds (e.g. initial questions and necessary clarifications). Questions intended to DEEPEN or CHALLENGE should be treated as opportunities for bonus points or risk reduction, NOT as baseline penalties. A candidate should not be penalized simply because they faced more follow-up questions.
       9. Finally, provide an overall recommendation, an overall score out of 100, a summary, strongest areas, riskFlags (overall), and suggested focus for the next round.
       10. **CRITICAL LOCALIZATION RULE**: All generated text MUST be in Chinese (zh-CN), EXCEPT for the enum values \`verificationStatus\`, \`riskLevel\`, and \`overallRecommendation\` which must strictly remain in English as defined below. Output \`summary\`, \`strongestAreas\`, \`riskFlags\`, \`suggestedNextRoundFocus\`, \`missingPoints\`, \`strengths\`, \`weaknesses\`, and \`notes\` entirely in Chinese.
@@ -220,7 +232,13 @@ export async function handleReportRequest(req: Request) {
     // Hobby plan serverless functions time out after 60s. Edge functions allow
     // longer execution IF they stream data back to the client.
     const ai = getAI();
-    const resultStream = await ai.models.generateContentStream({
+    
+    const timeoutPromise = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("LLM_TIMEOUT")), 45000));
+    
+    logger.info("SendingModelRequest", {});
+    
+    const resultStream: any = await Promise.race([
+      ai.models.generateContentStream({
       model: "gemini-3.1-pro-preview",
       contents: prompt,
       config: {
@@ -264,13 +282,10 @@ export async function handleReportRequest(req: Request) {
                     items: {
                       type: "OBJECT",
                       properties: {
-                        question: { type: "STRING" },
-                        answer: { type: "STRING" },
-                        turnType: { type: "STRING" },
-                        answerStatus: { type: "STRING" },
+                        turnNumber: { type: "NUMBER" },
                         notes: { type: "STRING" }
                       },
-                      required: ["question", "answer", "answerStatus", "notes"]
+                      required: ["turnNumber", "notes"]
                     }
                   }
                 },
@@ -278,11 +293,12 @@ export async function handleReportRequest(req: Request) {
               }
             }
           },
-          required: ["overallRecommendation", "overallScore", "summary", "strongestAreas", "riskFlags", "suggestedNextRoundFocus", "claimEvaluations"]
+            required: ["overallRecommendation", "overallScore", "summary", "strongestAreas", "riskFlags", "suggestedNextRoundFocus", "claimEvaluations"]
+          }
         }
-      }
-    });
-
+      }),
+      timeoutPromise
+    ]);
     // 6. Return a ReadableStream to keep the connection alive
     // We stream the chunks down. Since this is JSON, the client will wait
     // for the stream to complete before parsing it.
@@ -292,6 +308,9 @@ export async function handleReportRequest(req: Request) {
     const stream = new ReadableStream({
       async start(controller) {
         let pingInterval: any;
+        let watchdog: any;
+        let lastChunkTime = Date.now();
+        
         try {
           // Send an initial character to finalize headers and start the stream immediately
           controller.enqueue(encoder.encode(' '));
@@ -306,7 +325,15 @@ export async function handleReportRequest(req: Request) {
             }
           }, 5000);
 
+          watchdog = setInterval(() => {
+             if (Date.now() - lastChunkTime > 45000) {
+                 clearInterval(watchdog);
+                 controller.error(new Error("LLM_STREAM_TIMEOUT"));
+             }
+          }, 1000);
+
           for await (const chunk of resultStream) {
+            lastChunkTime = Date.now();
             const textChunk = chunk.text;
             if (textChunk) {
               accumulatedText += textChunk;
@@ -316,17 +343,44 @@ export async function handleReportRequest(req: Request) {
           }
 
           clearInterval(pingInterval);
+          if (watchdog) clearInterval(watchdog);
 
           // Clean up the markdown JSON formatting
           let reportText = accumulatedText || '{}';
           reportText = reportText.replace(/```json/g, '').replace(/```/g, '').trim();
           
-          let report;
+          let report: any;
           try {
             report = JSON.parse(reportText);
           } catch (e) {
-            console.error("[Generate-Report] Failed to parse JSON from AI", reportText.substring(0, 100));
-            throw new Error("Invalid format from AI");
+            logger.warn("JSONParsingWarning", { event_type: "AttemptingRepair" });
+            try {
+              const repairedJSON = jsonrepair(reportText);
+              report = JSON.parse(repairedJSON);
+              report.warningFlag = "报告生成过程中产生中断，部分数据可能缺失或不完整。";
+            } catch (repairError) {
+              logger.error("JSONParsingFatal", { event_type: "RepairFailed" });
+              throw new Error("Invalid format from AI and repair failed");
+            }
+          }
+
+          // Reconstruct turnEvaluations to expand turnNumber back into full question/answer
+          // so the frontend dashboard is not affected by this backend optimization.
+          if (report.claimEvaluations) {
+            report.claimEvaluations.forEach((evaluation: any) => {
+              if (Array.isArray(evaluation.turnEvaluations)) {
+                evaluation.turnEvaluations = evaluation.turnEvaluations.map((turnVal: any) => {
+                  const matchingTurn = historyData.find((h: any) => h.turn_number === turnVal.turnNumber);
+                  return {
+                    ...turnVal,
+                    question: matchingTurn?.question_asked || "",
+                    answer: matchingTurn?.candidate_answer || "",
+                    turnType: matchingTurn?.turn_type || "",
+                    answerStatus: matchingTurn?.agent_evaluation || ""
+                  };
+                });
+              }
+            });
           }
 
           // Post-process: zero out scores for claims where all turns were non-answers
@@ -352,17 +406,41 @@ export async function handleReportRequest(req: Request) {
             .eq('id', sessionId);
 
           if (updateError) {
-             console.error("[Generate-Report] Failed to save report:", updateError);
+             logger.error("FailedToSaveReport", { database_error: updateError, session_id: sessionId });
+          } else {
+             logger.info("ReportSaved", { session_id: sessionId, status: "COMPLETED" });
           }
-
-          console.log(`[Generate-Report] Completed for session ${sessionId}`);
 
           // Finally, send the actual JSON payload at the very end of the stream
           // The client can trim the leading spaces and parse the JSON.
           controller.enqueue(encoder.encode(JSON.stringify({ success: true, report })));
           controller.close();
         } catch (streamError: any) {
-          console.error("[Generate-Report] Stream generation error:", streamError);
+          if (pingInterval) clearInterval(pingInterval);
+          if (watchdog) clearInterval(watchdog);
+          
+          logger.error("StreamGenerationError", { error_message: streamError.message, session_id: sessionId, status: "FAILED" });
+          
+          // ROLLBACK
+          if (lockedSessionId && lockedSessionData) {
+            const supabaseAdmin = getSupabaseAdmin();
+            const newRetryCount = (lockedSessionData.report?.retry_count || 0) + 1;
+            const failedReport = {
+               ...(lockedSessionData.report || {}),
+               failed_generation: true,
+               failure_reason: streamError.message || "Unknown Stream Error",
+               error_type: streamError.message?.includes("TIMEOUT") ? "Timeout" : "Stream_Error",
+               retry_count: newRetryCount
+            };
+            
+            await supabaseAdmin
+              .from('interview_sessions')
+              .update({ status: 'INTERVIEW_ENDED', report: failedReport })
+              .eq('id', lockedSessionId);
+              
+            logger.info("SessionRolledBack", { session_id: lockedSessionId, retry_count: newRetryCount });
+          }
+          
           controller.enqueue(encoder.encode(JSON.stringify({ error: streamError.message || "Generation failed" })));
           controller.close();
         }
@@ -379,7 +457,28 @@ export async function handleReportRequest(req: Request) {
     });
 
   } catch (error: any) {
-    console.error("[Generate-Report] Fatal error:", error);
+    logger.error("FatalError", { error_message: error.message, status: "FAILED" });
+    
+    // Hard ROLLBACK if it fails outside stream block
+    if (lockedSessionId && lockedSessionData) {
+      const supabaseAdmin = getSupabaseAdmin();
+      const newRetryCount = (lockedSessionData.report?.retry_count || 0) + 1;
+      const failedReport = {
+         ...(lockedSessionData.report || {}),
+         failed_generation: true,
+         failure_reason: error.message || "Unhandled Fatal Error",
+         error_type: error.message === "LLM_TIMEOUT" ? "Timeout" : "Fatal_Error",
+         retry_count: newRetryCount
+      };
+      
+      await supabaseAdmin
+        .from('interview_sessions')
+        .update({ status: 'INTERVIEW_ENDED', report: failedReport })
+        .eq('id', lockedSessionId);
+        
+      logger.info("SessionRolledBackOuter", { session_id: lockedSessionId, retry_count: newRetryCount });
+    }
+    
     return new Response(JSON.stringify({ error: error.message || "Internal Server Error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" }

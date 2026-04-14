@@ -462,6 +462,10 @@ export default function Dashboard() {
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
                                   已评估
                                 </span>
+                              ) : session.status === 'GENERATING' ? (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-600/20">
+                                  报告生成中
+                                </span>
                               ) : session.status === 'INTERVIEW_ENDED' ? (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20">
                                   待生成报告
@@ -505,6 +509,7 @@ export default function Dashboard() {
                     >
                       <option value="ALL">所有状态</option>
                       <option value="COMPLETED">已评估</option>
+                      <option value="GENERATING">生成中</option>
                       <option value="INTERVIEW_ENDED">待生成报告</option>
                       <option value="IN_PROGRESS">面试中</option>
                       <option value="PENDING">未开启</option>
@@ -578,17 +583,17 @@ export default function Dashboard() {
                                   {copiedId === session.id ? <CheckCircle size={14} /> : <Copy size={14} />}
                                   {copiedId === session.id ? 'Copied' : 'Copy Link'}
                                 </button>
-                              ) : session.status === 'INTERVIEW_ENDED' || session.status === 'NOT_FINISHED' ? (
+                              ) : session.status === 'INTERVIEW_ENDED' || session.status === 'NOT_FINISHED' || session.status === 'GENERATING' ? (
                                 <button
                                   onClick={() => handleGenerateReport(session.id)}
-                                  disabled={generatingReportId === session.id}
+                                  disabled={generatingReportId === session.id || session.status === 'GENERATING'}
                                   className={`inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg transition-colors ml-auto ${
-                                    generatingReportId === session.id
+                                    generatingReportId === session.id || session.status === 'GENERATING'
                                       ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                                       : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
                                   }`}
                                 >
-                                  {generatingReportId === session.id ? (
+                                  {generatingReportId === session.id || session.status === 'GENERATING' ? (
                                     <><Loader2 size={14} className="animate-spin" /> 生成中...</>
                                   ) : (
                                     <><FileText size={14} /> 生成报告</>
