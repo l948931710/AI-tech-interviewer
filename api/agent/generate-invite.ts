@@ -10,11 +10,16 @@ async function sha256(message: string) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// S9 fix: Module-level cache
+let cachedAdmin: any = null;
 function getSupabaseAdmin() {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseServiceKey) throw new Error("Missing Supabase config.");
-  return createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+  if (!cachedAdmin) {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseServiceKey) throw new Error("Missing Supabase config.");
+    cachedAdmin = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+  }
+  return cachedAdmin;
 }
 
 export default async function handler(req: Request) {
@@ -41,6 +46,11 @@ export default async function handler(req: Request) {
 
     if (sessionError || !sessionData) {
       return new Response(JSON.stringify({ error: "Session not found" }), { status: 404 });
+    }
+
+    // S1 fix: Verify the session is owned by the calling HR user
+    if (sessionData.created_by !== auth.user.id) {
+      return new Response(JSON.stringify({ error: "Not authorized to generate invite for this session" }), { status: 403 });
     }
 
     // Generate crypto-secure raw token

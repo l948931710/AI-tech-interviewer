@@ -123,6 +123,16 @@ export default defineConfig(({mode}) => {
           server.middlewares.use('/api/agent/next-step', (req, res) => {
             proxyToHandler(req, res, '/api/agent/next-step.ts');
           });
+
+          // Route: /api/agent/generate-invite (Token generation for interview links)
+          server.middlewares.use('/api/agent/generate-invite', (req, res) => {
+            proxyToHandler(req, res, '/api/agent/generate-invite.ts');
+          });
+
+          // Route: /api/agent/update-status (Session status transitions)
+          server.middlewares.use('/api/agent/update-status', (req, res) => {
+            proxyToHandler(req, res, '/api/agent/update-status.ts');
+          });
         }
       }
     ],

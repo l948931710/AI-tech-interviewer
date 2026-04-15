@@ -3,11 +3,16 @@ import { verifyAuth } from "../api-auth";
 
 export const config = { runtime: 'edge' };
 
+// S9 fix: Module-level cache
+let cachedAdmin: any = null;
 function getSupabaseAdmin() {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseServiceKey) throw new Error("Missing Supabase config.");
-  return createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+  if (!cachedAdmin) {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseServiceKey) throw new Error("Missing Supabase config.");
+    cachedAdmin = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+  }
+  return cachedAdmin;
 }
 
 export default async function handler(req: Request) {
@@ -30,12 +35,17 @@ export default async function handler(req: Request) {
 
     const supabaseAdmin = getSupabaseAdmin();
     
-    const { error } = await supabaseAdmin
+    const { data: updated, error } = await supabaseAdmin
       .from('interview_sessions')
       .update({ status })
-      .eq('id', sessionId);
+      .eq('id', sessionId)
+      .in('status', ['IN_PROGRESS'])  // S5 fix: Only allow transitions from IN_PROGRESS
+      .select('id')
+      .single();
       
-    if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    if (error || !updated) {
+      return new Response(JSON.stringify({ error: 'Status transition not allowed from current state' }), { status: 409 });
+    }
     
     return new Response(JSON.stringify({ success: true }), { status: 200, headers: { "Content-Type": "application/json" } });
 

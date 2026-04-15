@@ -10,8 +10,8 @@ import { createClient } from '@supabase/supabase-js';
  * Returns the authenticated user on success, or a 401 Response on failure.
  */
 export async function verifyAuth(req: Request): Promise<
-  { user: { id: string; email?: string }; error?: never } |
-  { user?: never; error: Response }
+  { user: { id: string; email?: string }; tokenHash?: string; error?: never } |
+  { user?: never; tokenHash?: never; error: Response }
 > {
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -44,11 +44,12 @@ export async function verifyAuth(req: Request): Promise<
   const interviewToken = req.headers.get('X-Interview-Token');
   const sessionId = req.headers.get('X-Session-Id');
 
+  // 0. Local Dev Bypass (Never strictly enforce if using entirely local JSON DB)
+  if (sessionId && process.env.VITE_USE_LOCAL_DB === 'true') {
+    return { user: { id: `candidate-${sessionId}` } };
+  }
+
   if (interviewToken && sessionId) {
-    // 0. Local Dev Bypass (Never strictly enforce if using entirely local JSON DB)
-    if (process.env.VITE_USE_LOCAL_DB === 'true') {
-      return { user: { id: `candidate-${sessionId}` } };
-    }
 
     // Prepare Web Crypto SHA-256 for validation
     const msgBuffer = new TextEncoder().encode(interviewToken);
@@ -66,7 +67,7 @@ export async function verifyAuth(req: Request): Promise<
     
     const { data: sessionData, error: sessionError } = await supabase
       .from('interview_sessions')
-      .select('status')
+      .select('status, created_at')
       .eq('id', sessionId)
       .single();
 
@@ -98,6 +99,19 @@ export async function verifyAuth(req: Request): Promise<
       authDenialReason = 'Token has expired';
     } else if (sessionData.status === 'COMPLETED' || sessionData.status === 'GENERATING') {
       authDenialReason = 'Session is already finished';
+    } else if (sessionData.status === 'PENDING') {
+      // M2 fix: Server-side session age check (decoupled from token expiration).
+      // A PENDING session older than 24 hours is rejected regardless of token validity.
+      // This ensures the client-side 24h check cannot be bypassed.
+      const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+      const sessionAge = Date.now() - new Date(sessionData.created_at).getTime();
+      if (sessionAge > SESSION_MAX_AGE_MS) {
+        authDenialReason = `Session expired (created ${Math.round(sessionAge / 3600000)}h ago, max 24h)`;
+      } else if (tokenData.is_used && tokenData.use_count >= tokenData.max_uses) {
+        authDenialReason = `Token usage limit exceeded (${tokenData.use_count}/${tokenData.max_uses})`;
+      } else {
+        authSuccess = true;
+      }
     } else if (sessionData.status === 'IN_PROGRESS') {
       // 3. Strict reconnection verification
       // If it's already in progress, standard token count limits no longer safely apply,
@@ -118,7 +132,7 @@ export async function verifyAuth(req: Request): Promise<
         authSuccess = true;
       }
     } else {
-      // Nominal flow (PENDING, NOT_FINISHED, INTERVIEW_ENDED)
+      // Nominal flow for other statuses (NOT_FINISHED, INTERVIEW_ENDED)
       if (tokenData.is_used && tokenData.use_count >= tokenData.max_uses) {
         authDenialReason = `Token usage limit exceeded (${tokenData.use_count}/${tokenData.max_uses})`;
       } else {
@@ -141,10 +155,14 @@ export async function verifyAuth(req: Request): Promise<
     }
 
     if (authSuccess) {
-      return { user: { id: `candidate-${sessionId}` } };
+      console.log(`[Auth DEBUG] SUCCESS! Candidate authenticated for ${sessionId}`);
+      return { user: { id: `candidate-${sessionId}` }, tokenHash };
     }
 
-    console.warn(`[Auth] Rejected candidate token for session ${sessionId}: ${authDenialReason}`);
+    console.warn(`[Auth DEBUG] Rejected candidate token for session ${sessionId}. Denial Reason: ${authDenialReason}`);
+    console.warn(`[Auth DEBUG] Dump: tokenData=`, tokenData ? 'exists' : 'null', `sessionStatus=`, sessionData?.status);
+  } else {
+    console.warn(`[Auth DEBUG] Missing interviewToken or sessionId. interviewToken=${!!interviewToken}, sessionId=${!!sessionId}`);
   }
 
   return {

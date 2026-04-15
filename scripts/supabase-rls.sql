@@ -1,89 +1,135 @@
 -- =============================================================================
--- Supabase Row-Level Security (RLS) Policies
+-- M4 Fix: Tightened Row-Level Security (RLS) Policies
 -- =============================================================================
--- Run this script in the Supabase SQL Editor (Dashboard > SQL Editor > New query)
+-- Run this script in the Supabase SQL Editor AFTER dropping the old permissive policies.
 --
--- These policies ensure:
--- 1. Authenticated users can read/write their own interview sessions
--- 2. The service_role key (used by API endpoints) bypasses RLS automatically
--- 3. Anonymous/unauthenticated users cannot access any data
+-- Changes from original:
+-- 1. HR SELECT scoped to created_by = auth.uid() (was USING (true))
+-- 2. HR UPDATE scoped to created_by = auth.uid() (was USING (true))
+-- 3. HR DELETE scoped to created_by = auth.uid() (was USING (true))
+-- 4. No anon policies — all candidate access goes through server-side
+--    endpoints using SUPABASE_SERVICE_ROLE_KEY (bypasses RLS)
 -- =============================================================================
 
 -- =====================
 -- interview_sessions
 -- =====================
-ALTER TABLE interview_sessions ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users to read all sessions (HR users need this for dashboard)
-CREATE POLICY "Authenticated users can read sessions"
+-- Drop old permissive policies
+DROP POLICY IF EXISTS "Authenticated users can read sessions" ON interview_sessions;
+DROP POLICY IF EXISTS "Authenticated users can insert sessions" ON interview_sessions;
+DROP POLICY IF EXISTS "Authenticated users can update sessions" ON interview_sessions;
+DROP POLICY IF EXISTS "Authenticated users can delete sessions" ON interview_sessions;
+
+-- HR can only read sessions they created
+CREATE POLICY "HR can read own sessions"
   ON interview_sessions
   FOR SELECT
   TO authenticated
-  USING (true);
+  USING (created_by = auth.uid());
 
--- Allow authenticated users to insert sessions (HR creates interviews)
-CREATE POLICY "Authenticated users can insert sessions"
+-- HR can insert sessions (created_by is set on insert)
+CREATE POLICY "HR can insert sessions"
   ON interview_sessions
   FOR INSERT
   TO authenticated
-  WITH CHECK (true);
+  WITH CHECK (created_by = auth.uid());
 
--- Allow authenticated users to update sessions (candidates update status, HR views)
-CREATE POLICY "Authenticated users can update sessions"
+-- HR can only update their own sessions
+CREATE POLICY "HR can update own sessions"
   ON interview_sessions
   FOR UPDATE
   TO authenticated
-  USING (true)
-  WITH CHECK (true);
+  USING (created_by = auth.uid())
+  WITH CHECK (created_by = auth.uid());
 
--- Allow authenticated users to delete sessions (HR cleanup)
-CREATE POLICY "Authenticated users can delete sessions"
+-- HR can only delete their own sessions
+CREATE POLICY "HR can delete own sessions"
   ON interview_sessions
   FOR DELETE
   TO authenticated
-  USING (true);
+  USING (created_by = auth.uid());
 
 -- =====================
 -- session_claims
 -- =====================
-ALTER TABLE session_claims ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users to read claims
-CREATE POLICY "Authenticated users can read claims"
+-- Drop old permissive policies
+DROP POLICY IF EXISTS "Authenticated users can read claims" ON session_claims;
+DROP POLICY IF EXISTS "Authenticated users can insert claims" ON session_claims;
+
+-- HR can only read claims for sessions they own
+CREATE POLICY "HR can read own session claims"
   ON session_claims
   FOR SELECT
   TO authenticated
-  USING (true);
+  USING (
+    EXISTS (
+      SELECT 1 FROM interview_sessions
+      WHERE id = session_id AND created_by = auth.uid()
+    )
+  );
 
--- Allow authenticated users to insert claims (created during interview setup)
-CREATE POLICY "Authenticated users can insert claims"
+-- HR can insert claims for sessions they own
+CREATE POLICY "HR can insert own session claims"
   ON session_claims
   FOR INSERT
   TO authenticated
-  WITH CHECK (true);
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM interview_sessions
+      WHERE id = session_id AND created_by = auth.uid()
+    )
+  );
 
 -- =====================
 -- session_transcripts
 -- =====================
-ALTER TABLE session_transcripts ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users to read transcripts
-CREATE POLICY "Authenticated users can read transcripts"
+-- Drop old permissive policies
+DROP POLICY IF EXISTS "Authenticated users can read transcripts" ON session_transcripts;
+DROP POLICY IF EXISTS "Authenticated users can insert transcripts" ON session_transcripts;
+DROP POLICY IF EXISTS "Authenticated users can delete transcripts" ON session_transcripts;
+
+-- HR can only read transcripts for sessions they own
+CREATE POLICY "HR can read own session transcripts"
   ON session_transcripts
   FOR SELECT
   TO authenticated
-  USING (true);
+  USING (
+    EXISTS (
+      SELECT 1 FROM interview_sessions
+      WHERE id = session_id AND created_by = auth.uid()
+    )
+  );
 
--- Allow authenticated users to insert transcripts (during interview)
-CREATE POLICY "Authenticated users can insert transcripts"
+-- HR can insert transcripts for sessions they own
+CREATE POLICY "HR can insert own session transcripts"
   ON session_transcripts
   FOR INSERT
   TO authenticated
-  WITH CHECK (true);
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM interview_sessions
+      WHERE id = session_id AND created_by = auth.uid()
+    )
+  );
 
--- Allow authenticated users to delete transcripts (for updateTranscript pattern)
-CREATE POLICY "Authenticated users can delete transcripts"
+-- HR can delete transcripts for sessions they own
+CREATE POLICY "HR can delete own session transcripts"
   ON session_transcripts
   FOR DELETE
   TO authenticated
-  USING (true);
+  USING (
+    EXISTS (
+      SELECT 1 FROM interview_sessions
+      WHERE id = session_id AND created_by = auth.uid()
+    )
+  );
+
+-- =============================================================================
+-- NOTE: All candidate-facing API endpoints (start, next-step, load-session,
+-- update-status, tts-stream) use SUPABASE_SERVICE_ROLE_KEY which bypasses RLS.
+-- This is intentional — candidate access is authenticated via invite tokens
+-- in verifyAuth(), not via Supabase auth.
+-- =============================================================================

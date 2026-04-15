@@ -16,6 +16,10 @@ export function setInterviewContext(sessionId: string, inviteToken: string) {
   interviewContext = { sessionId, inviteToken };
 }
 
+export function getInterviewSessionId(): string | undefined {
+  return interviewContext?.sessionId;
+}
+
 /**
  * Get auth headers for API calls.
  * - HR users: returns Supabase JWT Bearer token

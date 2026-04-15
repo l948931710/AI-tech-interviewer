@@ -59,7 +59,53 @@ export default function InterviewPortal() {
   useEffect(() => {
     const loadSessionData = async () => {
       if (id) {
-        const loadSession = await db.getSession(id);
+        const urlToken = searchParams.get('token') || '';
+
+        // M4 fix: Load session via server-side endpoint (validates token first)
+        // instead of reading directly via the Supabase anon key.
+        let loadSession;
+        if (USE_LOCAL) {
+          // Local dev: direct DB access is fine (no Supabase, no RLS)
+          loadSession = await db.getSession(id);
+        } else {
+          if (!urlToken) {
+            alert('Missing interview token. Please use the complete link provided by HR.');
+            navigate('/', { replace: true });
+            return;
+          }
+
+          try {
+            const res = await fetch('/api/agent/load-session', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Session-Id': id,
+                'X-Interview-Token': urlToken
+              },
+              body: JSON.stringify({ sessionId: id })
+            });
+
+            if (res.status === 401) {
+              alert('This interview link is invalid or has expired.');
+              navigate('/', { replace: true });
+              return;
+            }
+            if (res.status === 404) {
+              alert('Invalid Interview Link');
+              return;
+            }
+            if (!res.ok) {
+              alert('Failed to load interview session. Please try again.');
+              return;
+            }
+            loadSession = await res.json();
+          } catch (e) {
+            console.error('Failed to load session:', e);
+            alert('Network error. Please check your connection and try again.');
+            return;
+          }
+        }
+
         if (!loadSession) {
           alert("Invalid Interview Link");
           return;
@@ -67,34 +113,6 @@ export default function InterviewPortal() {
         if (loadSession.status === 'COMPLETED') {
           navigate('/thank-you', { replace: true });
           return;
-        }
-
-        // C1 fix: Block access if session is already being used by another candidate
-        // Wait, allow reconnect if the token matches
-        const urlToken = searchParams.get('token');
-        if (loadSession.status === 'IN_PROGRESS') {
-          if (!urlToken || (loadSession.inviteToken && urlToken !== loadSession.inviteToken)) {
-             alert('This interview session is already in progress.');
-             navigate('/', { replace: true });
-             return;
-          }
-        }
-
-        // C3 fix: Verify invite token before granting access
-        if (loadSession.inviteToken && urlToken !== loadSession.inviteToken) {
-          alert('Invalid or missing interview token. Please use the link provided by HR.');
-          navigate('/', { replace: true });
-          return;
-        }
-
-        // Check for 24-hour expiration on PENDING sessions
-        if (loadSession.status === 'PENDING') {
-          const _24HOURS = 24 * 60 * 60 * 1000;
-          if (Date.now() - loadSession.createdAt > _24HOURS) {
-            alert('This interview link has expired (valid for 24 hours only).');
-            navigate('/', { replace: true });
-            return;
-          }
         }
         
         setSession(loadSession);
@@ -112,11 +130,6 @@ export default function InterviewPortal() {
            setMemory(mem);
            setAppState('INTERVIEWING');
            
-           // Fast-forward to interviewing state
-           const lastTurn = loadSession.transcript[loadSession.transcript.length - 1];
-           
-           // We set the "currentQuestion" to a resume message, and we'll ask the backend
-           // to generate the actual next question when the user speaks (or they can just hear "let's continue")
            setCurrentQuestion(language === 'zh-CN' ? "欢迎回来。刚才的连接断开了，让我们继续。" : "Welcome back. We got disconnected, let's continue.");
            setInterviewPhase('TECHNICAL');
         } else {
@@ -133,9 +146,14 @@ export default function InterviewPortal() {
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (appState === 'INTERVIEWING' && id) {
+         const token = searchParams.get('token') || '';
          fetch('/api/agent/update-status', {
            method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
+           headers: { 
+             'Content-Type': 'application/json',
+             'X-Session-Id': id,
+             'X-Interview-Token': token
+           },
            body: JSON.stringify({ sessionId: id, status: 'NOT_FINISHED' }),
            keepalive: true
          }).catch(e => console.error(e));
@@ -189,9 +207,14 @@ export default function InterviewPortal() {
     setSystemCheck('checking'); // Use UI visually as loading state
 
     try {
+      const token = searchParams.get('token') || '';
       const startRes = await fetch('/api/agent/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Session-Id': id,
+          'X-Interview-Token': token
+        },
         body: JSON.stringify({ sessionId: id, language })
       });
       
@@ -258,10 +281,15 @@ export default function InterviewPortal() {
     setVoiceState('evaluating');
     
     try {
+      const token = searchParams.get('token') || '';
       // 1. We just hit our unified pure-DB backend endpoint!
       const res = await fetch('/api/agent/next-step', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+           'Content-Type': 'application/json',
+           'X-Session-Id': id || '',
+           'X-Interview-Token': token
+        },
         body: JSON.stringify({
            sessionId: id,
            requestId: currentRequestId,
@@ -333,12 +361,17 @@ export default function InterviewPortal() {
     stopAudio();
     setVoiceState('idle');
     if (id) {
+       const token = searchParams.get('token') || '';
        fetch('/api/agent/update-status', {
          method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
+         headers: { 
+           'Content-Type': 'application/json',
+           'X-Session-Id': id,
+           'X-Interview-Token': token
+         },
          body: JSON.stringify({ sessionId: id, status: 'NOT_FINISHED' }),
          keepalive: true
-       }).catch(e => console.error(e));
+       }).catch(e => console.error('[EndSession] Status update failed:', e));
        navigate('/thank-you', { replace: true });
     }
   };

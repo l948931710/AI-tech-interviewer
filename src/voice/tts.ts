@@ -1,4 +1,4 @@
-import { callAiBackend, withRetry, MODELS, getAuthHeaders } from "../agent/core";
+import { callAiBackend, withRetry, MODELS, getAuthHeaders, getInterviewSessionId } from "../agent/core";
 
 /**
  * Real streaming TTS via the /api/tts-stream SSE endpoint.
@@ -8,6 +8,7 @@ import { callAiBackend, withRetry, MODELS, getAuthHeaders } from "../agent/core"
 export async function* generateTTSStream(text: string): AsyncGenerator<string, void, unknown> {
   const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:5173/api';
   const authHeaders = await getAuthHeaders();
+  const sessionId = getInterviewSessionId();
 
   // Abort the fetch if the server doesn't start responding within 25 seconds.
   // Vercel Edge Functions have a 30s limit; cold start + Gemini TTS generation
@@ -18,7 +19,7 @@ export async function* generateTTSStream(text: string): AsyncGenerator<string, v
   const response = await fetch(`${baseUrl}/tts-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders },
-    body: JSON.stringify({ text, voiceName: 'Kore' }),
+    body: JSON.stringify({ text, voiceName: 'Kore', sessionId }),
     signal: controller.signal
   });
 

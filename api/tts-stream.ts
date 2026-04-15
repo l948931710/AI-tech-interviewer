@@ -1,5 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
+import { createClient } from "@supabase/supabase-js";
 import { verifyAuth } from "./api-auth";
+import { logLLMUsage } from "./llm-logger";
 
 /**
  * Streaming TTS endpoint using Server-Sent Events (SSE).
@@ -42,7 +44,7 @@ export default async function handler(req: Request) {
 
   try {
     const ai = getAI();
-    const { text } = await req.json();
+    const { text, sessionId } = await req.json();
 
     if (!text) {
       return new Response(JSON.stringify({ error: "Missing required field: text" }), {
@@ -51,11 +53,22 @@ export default async function handler(req: Request) {
       });
     }
 
+    // Prepare Supabase admin client for logging (only if sessionId provided)
+    let supabaseAdmin: any = null;
+    if (sessionId) {
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (supabaseUrl && supabaseServiceKey) {
+        supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+      }
+    }
+
     console.log(`[TTS-Stream] Generating audio for ${text.length} chars, voice=Kore`);
 
     const VOICE_NAME = 'Kore';
     const TTS_SYSTEM_PROMPT = 'You are a professional female AI interviewer. Maintain a calm, warm, and authoritative tone throughout. Speak clearly and at a moderate pace. Read the following text aloud exactly as written.';
 
+    const llmStartTime = Date.now();
     const streamResponse = await ai.models.generateContentStream({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: `${TTS_SYSTEM_PROMPT}\n\n${text}` }] }],
@@ -82,10 +95,31 @@ export default async function handler(req: Request) {
             }
           }
           console.log(`[TTS-Stream] Finished: sent ${chunkCount} audio chunks`);
+          // S7 fix: Estimate tokens from text length (~4 chars/token heuristic)
+          // TTS streaming doesn't expose usageMetadata, so we approximate.
+          const estimatedPromptTokens = Math.ceil(text.length / 4);
+          if (supabaseAdmin && sessionId) {
+            logLLMUsage(supabaseAdmin, {
+              sessionId, endpoint: 'tts-stream',
+              model: 'gemini-2.5-flash-preview-tts', billingMode: 'tts_audio',
+              latencyMs: Date.now() - llmStartTime, success: true,
+              promptTokenCount: estimatedPromptTokens,
+              totalTokenCount: estimatedPromptTokens
+            });
+          }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         } catch (e: any) {
           console.error("[TTS-Stream] Stream iteration error:", e);
+          // Log failed TTS usage
+          if (supabaseAdmin && sessionId) {
+            logLLMUsage(supabaseAdmin, {
+              sessionId, endpoint: 'tts-stream',
+              model: 'gemini-2.5-flash-preview-tts', billingMode: 'tts_audio',
+              latencyMs: Date.now() - llmStartTime, success: false,
+              errorCode: e.message || 'TTS_STREAM_ERROR'
+            });
+          }
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: e.message || "Stream error" })}\n\n`));
           controller.close();
         }
