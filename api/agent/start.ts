@@ -121,6 +121,28 @@ export default async function handler(req: Request) {
       return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
     }
 
+    // Mark Token as used & increment usage count
+    const interviewToken = req.headers.get('X-Interview-Token');
+    if (interviewToken && process.env.VITE_USE_LOCAL_DB !== 'true') {
+      const msgBuffer = new TextEncoder().encode(interviewToken);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const tokenHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      const { data: tokData } = await supabaseAdmin
+        .from('invite_tokens')
+        .select('id, use_count')
+        .eq('token_hash', tokenHash)
+        .single();
+        
+      if (tokData) {
+        await supabaseAdmin
+          .from('invite_tokens')
+          .update({ is_used: true, use_count: tokData.use_count + 1 })
+          .eq('id', tokData.id);
+      }
+    }
+
     const introText = language === 'zh-CN' 
       ? "你好！欢迎参加今天的技术面试。在正式开始深入探讨你的项目之前，能先简单做个自我介绍吗？" 
       : "Hello! Welcome to your technical interview today. Before we dive deep into your projects, could you give me a brief self-introduction?";

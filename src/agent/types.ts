@@ -85,6 +85,7 @@ export interface InterviewReport {
 }
 
 export interface StructuredInterviewTurn {
+  requestId?: string;
   questionId?: string;
   timestamp?: string;
   question: string;
@@ -94,6 +95,9 @@ export interface StructuredInterviewTurn {
   experienceName?: string;
   turnType?: "intro" | "main" | "follow_up" | "transition" | "closing" | "repeat" | "clarify";
   answerStatus?: 'answered' | 'partial' | 'clarification_request' | 'non_answer';
+  decision?: 'FOLLOW_UP' | 'NEXT_CLAIM' | 'END_INTERVIEW' | 'REPEAT_QUESTION';
+  coveredPoints?: string[];
+  missingPoints?: string[];
 }
 
 export interface NextStep {

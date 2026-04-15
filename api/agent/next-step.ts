@@ -27,7 +27,7 @@ export default async function handler(req: Request) {
   if (auth.error) return auth.error;
 
   try {
-    const { sessionId, answer, question, questionId, language = 'zh-CN' } = await req.json();
+    const { sessionId, answer, question, questionId, requestId, language = 'zh-CN' } = await req.json();
 
     if (sessionId !== auth.user.id.replace('candidate-', '')) {
       return new Response(JSON.stringify({ error: "Context mismatch" }), { status: 403 });
@@ -62,9 +62,9 @@ export default async function handler(req: Request) {
     }));
 
     if (sessionData.phase === 'intro') {
-      return await handleIntroTurn(sessionId, answer, question, questionId, sessionData, supabaseAdmin);
+      return await handleIntroTurn(sessionId, answer, question, questionId, requestId, sessionData, supabaseAdmin);
     } else {
-      return await handleTechnicalTurn(sessionId, answer, question, questionId, language, sessionData, claims, transcriptData || [], supabaseAdmin);
+      return await handleTechnicalTurn(sessionId, answer, question, questionId, requestId, language, sessionData, claims, transcriptData || [], supabaseAdmin);
     }
 
   } catch (error: any) {
@@ -73,16 +73,47 @@ export default async function handler(req: Request) {
   }
 }
 
-async function handleIntroTurn(sessionId: string, answer: string, question: string, questionId: string, sessionData: any, supabaseAdmin: any) {
+async function handleIntroTurn(sessionId: string, answer: string, question: string, questionId: string, requestId: string, sessionData: any, supabaseAdmin: any) {
   const firstQuestion = sessionData.first_question;
   
   if (!firstQuestion) {
     return new Response(JSON.stringify({ error: "No first question pre-computed" }), { status: 500 });
   }
 
+  if (requestId) {
+    const { data: existingTurn } = await supabaseAdmin.from('session_transcripts').select('*').eq('session_id', sessionId).eq('request_id', requestId).single();
+    if (existingTurn) {
+        return new Response(JSON.stringify({
+            spokenQuestion: existingTurn.next_question,
+            nextQuestion: existingTurn.next_question,
+            answerStatus: existingTurn.answer_status,
+            decision: existingTurn.decision,
+            followUpIntent: '',
+            decisionRationale: 'Reconstructed from existing intro turn.',
+            coveredPoints: [],
+            missingPoints: [],
+            transcript: [
+              {
+                requestId: existingTurn.request_id,
+                questionId: existingTurn.question_id,
+                timestamp: new Date(existingTurn.timestamp).getTime().toString(),
+                question: existingTurn.question,
+                answer: existingTurn.answer,
+                turnType: existingTurn.turn_type,
+                answerStatus: existingTurn.answer_status,
+                decision: existingTurn.decision,
+                coveredPoints: [],
+                missingPoints: []
+              }
+            ]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+  }
+
   // 1. Insert the single resolved Intro turn
   const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
     session_id: sessionId,
+    request_id: requestId,
     question_id: questionId,
     question: question, // the intro question
     answer: answer,
@@ -107,11 +138,23 @@ async function handleIntroTurn(sessionId: string, answer: string, question: stri
     followUpIntent: '',
     decisionRationale: 'Candidate answered intro, moving to first technical claim.',
     coveredPoints: [],
-    missingPoints: []
+    missingPoints: [],
+    transcript: [{
+      requestId,
+      questionId,
+      timestamp: new Date().getTime().toString(),
+      question,
+      answer,
+      turnType: 'intro',
+      answerStatus: 'answered',
+      decision: 'NEXT_CLAIM',
+      coveredPoints: [],
+      missingPoints: []
+    }]
   }), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
-async function handleTechnicalTurn(sessionId: string, answer: string, question: string, questionId: string, language: string, sessionData: any, claims: Claim[], transcriptData: any[], supabaseAdmin: any) {
+async function handleTechnicalTurn(sessionId: string, answer: string, question: string, questionId: string, requestId: string, language: string, sessionData: any, claims: Claim[], transcriptData: any[], supabaseAdmin: any) {
   // Hard 40-minute cutoff, calculated cleanly from the actual session start time
   const startTimeMs = sessionData.started_at ? new Date(sessionData.started_at).getTime() : new Date(sessionData.created_at).getTime();
   const elapsedMs = Date.now() - startTimeMs;
@@ -134,6 +177,7 @@ async function handleTechnicalTurn(sessionId: string, answer: string, question: 
 
   const memory = new InterviewMemory(claims, sessionData.job_role_context);
   const transcript = (transcriptData || []).map((row: any) => ({
+    requestId: row.request_id,
     questionId: row.question_id,
     timestamp: new Date(row.timestamp).getTime().toString(),
     question: row.question,
@@ -142,8 +186,31 @@ async function handleTechnicalTurn(sessionId: string, answer: string, question: 
     claimText: row.claim_text,
     experienceName: row.experience_name,
     turnType: row.turn_type,
-    answerStatus: row.answer_status
+    answerStatus: row.answer_status,
+    decision: row.decision,
+    coveredPoints: row.covered_points || [],
+    missingPoints: row.missing_points || []
   }));
+  
+  if (requestId) {
+     const existingTurn = transcript.find((t: any) => t.requestId === requestId);
+     if (existingTurn && transcriptData) {
+         const rawRow = transcriptData.find((t: any) => t.request_id === requestId);
+         if (rawRow) {
+             return new Response(JSON.stringify({
+                spokenQuestion: rawRow.next_question,
+                nextQuestion: rawRow.next_question,
+                decision: existingTurn.decision,
+                answerStatus: existingTurn.answerStatus,
+                coveredPoints: existingTurn.coveredPoints,
+                missingPoints: existingTurn.missingPoints,
+                decisionRationale: '[Idempotency] Returned cached turn.',
+                transcript: transcript
+             }), { status: 200, headers: { "Content-Type": "application/json" } });
+         }
+     }
+  }
+
   if (transcript.length > 0) memory.restoreFromTranscript(transcript);
 
   const currentClaim = memory.getCurrentClaim();
@@ -311,8 +378,12 @@ async function handleTechnicalTurn(sessionId: string, answer: string, question: 
   // 1. Atomic insertion of the entirely resolved turn!
   const turnType = parsed.decision === 'NEXT_CLAIM' ? 'transition' : (parsed.decision === 'REPEAT_QUESTION' ? 'repeat' : 'follow_up');
   
+  const uniqueCovered = Array.from(new Set(parsed.coveredPoints || [])) as string[];
+  const missingPts = (parsed.missingPoints || []) as string[];
+
   const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
     session_id: sessionId,
+    request_id: requestId,
     question_id: questionId,
     question: question,
     answer: answer,
@@ -322,6 +393,8 @@ async function handleTechnicalTurn(sessionId: string, answer: string, question: 
     turn_type: turnType,
     answer_status: parsed.answerStatus,
     decision: parsed.decision,
+    covered_points: uniqueCovered,
+    missing_points: missingPts,
     next_question: parsed.nextQuestion
   });
 
@@ -333,6 +406,24 @@ async function handleTechnicalTurn(sessionId: string, answer: string, question: 
   if (parsed.decision === 'END_INTERVIEW') {
      await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
   }
+
+  transcript.push({
+    requestId,
+    questionId,
+    timestamp: new Date().getTime().toString(),
+    question,
+    answer,
+    claimId: currentClaim.id,
+    claimText: currentClaim.claim,
+    experienceName: currentClaim.experienceName,
+    turnType,
+    answerStatus: parsed.answerStatus,
+    decision: parsed.decision,
+    coveredPoints: uniqueCovered,
+    missingPoints: missingPts
+  });
+  
+  parsed.transcript = transcript;
 
   return new Response(JSON.stringify(parsed), { status: 200, headers: { "Content-Type": "application/json" } });
 }

@@ -184,37 +184,31 @@ export class InterviewMemory {
            
            this.addTurnToCurrentClaim(turn.question, turn.answer, turnType, turn.questionId, turn.timestamp);
            
-           // Mock evaluation for internal counters based on the current turn's answer status
-           // and what the NEXT turn type was
+           // We now trust explicit state syncing from the server over heuristics
+           // Fallback exists purely for backwards compatibility with legacy rows
            const nextTurn = transcript[i + 1];
-           let inferredDecision: NextStep['decision'] = 'FOLLOW_UP';
+           let decision: NextStep['decision'] = turn.decision || 'FOLLOW_UP';
            
-           if (!nextTurn) {
-             // We don't know the decision yet (it's the last turn). Or it ended.
-           } else if (nextTurn.turnType === 'follow_up') {
-             inferredDecision = 'FOLLOW_UP';
-           } else if (nextTurn.turnType === 'main') {
-             inferredDecision = 'NEXT_CLAIM';
-           } else if (nextTurn.turnType === 'transition') {
-             inferredDecision = 'END_INTERVIEW';
-           } else if (nextTurn.turnType === 'repeat' || nextTurn.turnType === 'clarify') {
-             inferredDecision = 'REPEAT_QUESTION';
+           if (!turn.decision) {
+               if (nextTurn?.turnType === 'main') decision = 'NEXT_CLAIM';
+               else if (nextTurn?.turnType === 'transition') decision = 'END_INTERVIEW';
+               else if (nextTurn?.turnType === 'repeat' || nextTurn?.turnType === 'clarify') decision = 'REPEAT_QUESTION';
            }
            
            const evalMock: NextStep = {
-              decision: inferredDecision,
+              decision: decision,
               answerStatus: (turn.answerStatus as any) || 'answered',
               spokenQuestion: '',
               nextQuestion: '',
-              decisionRationale: '[Replay]',
-              coveredPoints: [],
-              missingPoints: [],
+              decisionRationale: '[Replay from DB]',
+              coveredPoints: turn.coveredPoints || [],
+              missingPoints: turn.missingPoints || [],
               lightweightScores: { relevance: 0, specificity: 0, technicalDepth: 0, ownership: 0, evidence: 0 }
            };
            this.updateLatestTurnEvaluation(evalMock);
            
-           if (inferredDecision === 'NEXT_CLAIM' || inferredDecision === 'END_INTERVIEW') {
-              this.determineStatusAndAdvance(inferredDecision);
+           if (decision === 'NEXT_CLAIM' || decision === 'END_INTERVIEW') {
+              this.determineStatusAndAdvance(decision);
            }
         }
      }

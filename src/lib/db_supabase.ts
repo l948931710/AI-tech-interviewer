@@ -7,9 +7,6 @@ export const dbSupabase = {
     // Get the authenticated HR user's ID to store as session owner
     const { data: { user } } = await supabase.auth.getUser();
 
-    // C3 fix: Generate a secure invite token for candidate access
-    const inviteToken = crypto.randomUUID();
-
     const { data: sessionData, error: sessionError } = await supabase
       .from('interview_sessions')
       .insert({
@@ -18,7 +15,6 @@ export const dbSupabase = {
         candidate_info: data.candidateInfo,
         status: 'PENDING',
         created_by: user?.id || null,   // C1 fix: track session owner
-        invite_token: inviteToken,       // C3 fix: secure token for candidates
       })
       .select('id')
       .single();
@@ -55,7 +51,27 @@ export const dbSupabase = {
       }
     }
 
-    return { id: sessionId, inviteToken };
+    // Dynamically generate the token via backend API to securely store the hash
+    let generatedToken = 'local-dev-fallback-token';
+    try {
+      const { getAuthHeaders } = await import('../agent/core');
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch('/api/agent/generate-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ sessionId })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        generatedToken = data.token;
+      } else {
+        console.warn("Failed to generate token from API. Are backend APIs deployed?");
+      }
+    } catch (e) {
+      console.warn("Error calling generate-invite API, falling back:", e);
+    }
+
+    return { id: sessionId, inviteToken: generatedToken };
   },
 
   getSession: async (id: string): Promise<InterviewSession | null> => {
@@ -108,6 +124,7 @@ export const dbSupabase = {
     }));
 
     const transcript: StructuredInterviewTurn[] = (transcriptData || []).map((row: any) => ({
+      requestId: row.request_id,
       questionId: row.question_id,
       timestamp: new Date(row.timestamp).getTime().toString(),
       question: row.question,
@@ -116,7 +133,10 @@ export const dbSupabase = {
       claimText: row.claim_text,
       experienceName: row.experience_name,
       turnType: row.turn_type,
-      answerStatus: row.answer_status
+      answerStatus: row.answer_status,
+      decision: row.decision,
+      coveredPoints: row.covered_points || [],
+      missingPoints: row.missing_points || []
     }));
 
     return {
@@ -127,7 +147,6 @@ export const dbSupabase = {
       jobRoleContext: sessionData.job_role_context,
       candidateInfo: sessionData.candidate_info,
       report: sessionData.report,
-      inviteToken: sessionData.invite_token || undefined,  // C3 fix
       claims,
       transcript
     };

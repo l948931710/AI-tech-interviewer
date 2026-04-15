@@ -86,10 +86,34 @@ export default function Dashboard() {
     }
   }, [toastMessage]);
 
-  const copyLink = (id: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/invite/${id}`);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const generateAndCopyLink = async (id: string) => {
+    try {
+      const { getAuthHeaders } = await import('../../agent/core');
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch('/api/agent/generate-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ sessionId: id })
+      });
+      
+      let token = '';
+      if (res.ok) {
+        const data = await res.json();
+        token = data.token;
+      }
+      
+      const url = token ? `${window.location.origin}/invite/${id}?token=${token}` : `${window.location.origin}/invite/${id}`;
+      navigator.clipboard.writeText(url);
+      setCopiedId(id);
+      
+      if (token) {
+        setToastMessage({ title: '链接已复制', message: '已生成全新的安全邀请链接，失效期为 24 小时。旧链接已作废。' });
+      }
+      
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (e) {
+      console.error("Link generation failed", e);
+    }
   };
 
   const handleGenerateReport = async (sessionId: string) => {
@@ -577,7 +601,7 @@ export default function Dashboard() {
                             <td className="px-6 py-4 text-right">
                               {session.status === 'PENDING' ? (
                                 <button 
-                                  onClick={() => copyLink(session.id)}
+                                  onClick={() => generateAndCopyLink(session.id)}
                                   className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-2 rounded-lg transition-colors ml-auto"
                                 >
                                   {copiedId === session.id ? <CheckCircle size={14} /> : <Copy size={14} />}

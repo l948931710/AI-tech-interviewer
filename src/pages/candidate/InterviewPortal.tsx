@@ -31,6 +31,7 @@ export default function InterviewPortal() {
   const [memory, setMemory] = useState<InterviewMemory | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [currentQuestionId, setCurrentQuestionId] = useState<string>(() => crypto.randomUUID());
+  const [currentRequestId, setCurrentRequestId] = useState<string>(() => crypto.randomUUID());
   const [interviewPhase, setInterviewPhase] = useState<'INTRO' | 'TECHNICAL'>('INTRO');
   const [currentTurnType, setCurrentTurnType] = useState<TurnType>('intro');
   
@@ -263,6 +264,7 @@ export default function InterviewPortal() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
            sessionId: id,
+           requestId: currentRequestId,
            answer: answer,
            question: currentQuestion,
            questionId: currentQuestionId,
@@ -273,15 +275,16 @@ export default function InterviewPortal() {
       if (!res.ok) throw new Error("Next step generation failed");
       const nextStep = await res.json();
       
-      // Update UI memory strictly for rendering visually (backend owns real DB state now)
-      const updatedMemory = Object.assign(Object.create(Object.getPrototypeOf(memory)), memory) as InterviewMemory;
-      updatedMemory.addTurnToCurrentClaim(currentQuestion, answer, interviewPhase === 'INTRO' ? 'intro' : 'main', currentQuestionId);
-      updatedMemory.updateLatestTurnEvaluation(nextStep);
-      updatedMemory.determineStatusAndAdvance(nextStep.decision);
-      
+      // Pure Server-Driven State!
+      const updatedMemory = new InterviewMemory(session.claims, session.jobRoleContext);
+      if (nextStep.transcript) {
+        updatedMemory.restoreFromTranscript(nextStep.transcript);
+      }
       setMemory(updatedMemory);
+      
       setInterviewPhase('TECHNICAL'); // After any answer, we are technically in technical phase implicitly
       setCurrentQuestionId(crypto.randomUUID());
+      setCurrentRequestId(crypto.randomUUID());
       setCurrentQuestion(nextStep.nextQuestion);
       
       if (nextStep.decision === 'END_INTERVIEW') {

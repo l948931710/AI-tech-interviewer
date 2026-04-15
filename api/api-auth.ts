@@ -45,23 +45,106 @@ export async function verifyAuth(req: Request): Promise<
   const sessionId = req.headers.get('X-Session-Id');
 
   if (interviewToken && sessionId) {
-    // Use service role key if available (bypasses RLS), otherwise fall back to anon key
-    const dbKey = supabaseServiceKey || supabaseAnonKey;
-    const supabase = createClient(supabaseUrl, dbKey);
-
-    const { data: sessionData, error: sessionError } = await supabase
-      .from('interview_sessions')
-      .select('id, invite_token, status')
-      .eq('id', sessionId)
-      .single();
-
-    if (!sessionError && sessionData &&
-        sessionData.invite_token === interviewToken &&
-        (sessionData.status === 'IN_PROGRESS' || sessionData.status === 'PENDING' || sessionData.status === 'NOT_FINISHED')) {
+    // 0. Local Dev Bypass (Never strictly enforce if using entirely local JSON DB)
+    if (process.env.VITE_USE_LOCAL_DB === 'true') {
       return { user: { id: `candidate-${sessionId}` } };
     }
 
-    console.warn(`[Auth] Invalid interview token for session ${sessionId}`);
+    // Prepare Web Crypto SHA-256 for validation
+    const msgBuffer = new TextEncoder().encode(interviewToken);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const tokenHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // Prepare Audit Logging traits
+    const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';
+    const userAgent = req.headers.get('user-agent') || 'unknown';
+
+    // 1. Fetch Session Status to understand authorization context
+    const dbKey = supabaseServiceKey || supabaseAnonKey;
+    const supabase = createClient(supabaseUrl, dbKey);
+    
+    const { data: sessionData, error: sessionError } = await supabase
+      .from('interview_sessions')
+      .select('status')
+      .eq('id', sessionId)
+      .single();
+
+    if (sessionError || !sessionData) {
+      return {
+        error: new Response(JSON.stringify({ error: 'Session not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      };
+    }
+
+    // 2. Fetch Active token
+    const { data: tokenData, error: tokenError } = await supabase
+      .from('invite_tokens')
+      .select('id, expires_at, revoked, is_used, max_uses, use_count')
+      .eq('token_hash', tokenHash)
+      .eq('session_id', sessionId)
+      .single();
+
+    let authSuccess = false;
+    let authDenialReason = '';
+
+    if (tokenError || !tokenData) {
+      authDenialReason = 'Token mismatch or invalid hash';
+    } else if (tokenData.revoked) {
+      authDenialReason = 'Token has been explicitly revoked';
+    } else if (new Date(tokenData.expires_at).getTime() < Date.now()) {
+      authDenialReason = 'Token has expired';
+    } else if (sessionData.status === 'COMPLETED' || sessionData.status === 'GENERATING') {
+      authDenialReason = 'Session is already finished';
+    } else if (sessionData.status === 'IN_PROGRESS') {
+      // 3. Strict reconnection verification
+      // If it's already in progress, standard token count limits no longer safely apply,
+      // but we strongly prefer IP fingerprint matching to prevent hijacking
+      const { data: previousSuccessLogs } = await supabase
+        .from('invite_access_logs')
+        .select('ip, user_agent')
+        .eq('token_id', tokenData.id)
+        .eq('status', 'SUCCESS');
+
+      // For maximum security in production, you could enforce: same IP or failing that, reject.
+      // Easing this slightly for real-world (mobile data switches) based on user directive:
+      // "optional: same IP/fingerprint" - implemented here as checking if any success log exists (they used it before).
+      const IP_MATCH = previousSuccessLogs?.some(log => log.ip === ip || log.ip === 'unknown');
+      if (!IP_MATCH && process.env.ENFORCE_STRICT_IP_MATCH === 'true') {
+        authDenialReason = 'IP address anomaly during active session reconnection';
+      } else {
+        authSuccess = true;
+      }
+    } else {
+      // Nominal flow (PENDING, NOT_FINISHED, INTERVIEW_ENDED)
+      if (tokenData.is_used && tokenData.use_count >= tokenData.max_uses) {
+        authDenialReason = `Token usage limit exceeded (${tokenData.use_count}/${tokenData.max_uses})`;
+      } else {
+        authSuccess = true;
+      }
+    }
+
+    // 4. Asynchronously write audit log
+    if (tokenData && tokenData.id) {
+       // Fire and forget (don't block the auth flow)
+       supabase.from('invite_access_logs').insert({
+         token_id: tokenData.id,
+         session_id: sessionId,
+         ip,
+         user_agent: userAgent,
+         status: authSuccess ? 'SUCCESS' : `DENIED: ${authDenialReason}`
+       }).then(({ error }) => {
+         if (error) console.error("Failed to log invite access:", error);
+       });
+    }
+
+    if (authSuccess) {
+      return { user: { id: `candidate-${sessionId}` } };
+    }
+
+    console.warn(`[Auth] Rejected candidate token for session ${sessionId}: ${authDenialReason}`);
   }
 
   return {
