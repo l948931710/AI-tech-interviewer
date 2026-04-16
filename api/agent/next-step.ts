@@ -345,12 +345,11 @@ ${answer}
 </candidate_answer>`;
 
     const ai = getAI();
-    let resultText = "";
-    const llmStartTime = Date.now();
     let streamResponse: any;
+    const llmStartTime = Date.now();
 
     try {
-      streamResponse = await ai.models.generateContent({
+      streamResponse = await ai.models.generateContentStream({
         model: "gemini-3-flash-preview",
         contents: userData,
         config: {
@@ -380,63 +379,188 @@ ${answer}
       });
       throw llmError;
     }
-    const llmLatencyMs = Date.now() - llmStartTime;
-    const usageMeta = extractUsageMetadata(streamResponse);
 
-    // Fire-and-forget: log LLM usage
-    logLLMUsage(supabaseAdmin, {
-      sessionId, requestId, endpoint: 'next-step', model: 'gemini-3-flash-preview',
-      billingMode: 'text', latencyMs: llmLatencyMs, success: true,
-      ...usageMeta
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let buffer = "";
+        let inSpokenQuestion = false;
+        let spokenQuestionBuffer = "";
+        let lastSentIndex = 0;
+        let segmentIndex = 0;
+        let finalJsonString = "";
+        
+        try {
+          for await (const chunk of streamResponse) {
+            const textChunk = chunk.text;
+            buffer += textChunk;
+            finalJsonString += textChunk;
+
+            if (!inSpokenQuestion) {
+               const match = buffer.match(/"spokenQuestion"\s*:\s*"/);
+               if (match) {
+                 inSpokenQuestion = true;
+               }
+            }
+            
+            if (inSpokenQuestion) {
+               const match = buffer.match(/"spokenQuestion"\s*:\s*"((?:\\.|[^"\\])*)/);
+               if (match) {
+                 spokenQuestionBuffer = match[1];
+                 const sentenceSplitter = /([^.?!。？！]+[.?!。？！]+["']?\s*)/g;
+                 let sentMatch;
+                 let sentences = [];
+                 while ((sentMatch = sentenceSplitter.exec(spokenQuestionBuffer)) !== null) {
+                    sentences.push(sentMatch[0]);
+                 }
+                 
+                 while (sentences.length > lastSentIndex) {
+                    const sentenceToSend = sentences[lastSentIndex].trim();
+                    const cleanSentence = sentenceToSend.replace(/\\n/g, ' ').replace(/\\"/g, '"');
+                    if (cleanSentence.length > 0) {
+                      controller.enqueue(encoder.encode(`event: sentence\ndata: ${JSON.stringify({ text: cleanSentence, segmentIndex })}\n\n`));
+                      segmentIndex++;
+                    }
+                    lastSentIndex++;
+                 }
+               }
+               if (buffer.match(/"spokenQuestion"\s*:\s*"((?:\\.|[^"\\])*)["']/)) {
+                 inSpokenQuestion = false;
+               }
+            }
+          }
+          
+          const llmLatencyMs = Date.now() - llmStartTime;
+          const usageMeta = { promptTokenCount: Math.ceil(userData.length / 4), responseTokenCount: Math.ceil(finalJsonString.length / 4) }; 
+
+          logLLMUsage(supabaseAdmin, {
+            sessionId, requestId, endpoint: 'next-step', model: 'gemini-3-flash-preview',
+            billingMode: 'text', latencyMs: llmLatencyMs, success: true,
+            ...usageMeta
+          });
+
+          let rawText = finalJsonString.trim().replace(/```json/gi, '').replace(/```/g, '');
+          parsed = JSON.parse(rawText);
+
+          const mustVerifyPoints = currentClaim.mustVerify || [];
+          parsed.coveredPoints = (parsed.coveredPoints || []).filter((p: string) => mustVerifyPoints.includes(p));
+          parsed.missingPoints = (parsed.missingPoints || []).filter((p: string) => mustVerifyPoints.includes(p) && !parsed.coveredPoints.includes(p));
+
+          let decisionOverridden = false;
+          if (parsed.answerStatus === 'clarification_request' && repeatCountForCurrentQuestion === 0 && parsed.decision !== 'REPEAT_QUESTION') {
+            parsed.decision = 'REPEAT_QUESTION'; parsed.nextQuestion = question; parsed.spokenQuestion = question; decisionOverridden = true;
+          } else if (forceNextClaim && parsed.decision !== 'NEXT_CLAIM' && parsed.decision !== 'END_INTERVIEW') {
+            parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW'; decisionOverridden = true;
+          } else if (parsed.answerStatus === 'non_answer' && consecutiveNonAnswers >= 1 && parsed.decision !== 'NEXT_CLAIM' && parsed.decision !== 'END_INTERVIEW') {
+            parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW'; decisionOverridden = true;
+          } else if ((parsed.answerStatus === 'partial' || parsed.answerStatus === 'answered') && totalQuestionsAskedForCurrentClaim < minQuestionsPerClaim && (parsed.decision === 'NEXT_CLAIM' || parsed.decision === 'END_INTERVIEW') && !forceNextClaim) {
+            parsed.decision = 'FOLLOW_UP'; decisionOverridden = true;
+          } else if (followUpCountForCurrentClaim >= maxFollowUpsPerClaim && parsed.decision === 'FOLLOW_UP') {
+            const hasMissing = (parsed.missingPoints || []).length > 0;
+            if (!hasMissing || followUpCountForCurrentClaim >= hardLimitFollowUps) {
+              parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW'; decisionOverridden = true;
+            }
+          } else if (!nextClaim && parsed.decision === 'NEXT_CLAIM') {
+            parsed.decision = 'END_INTERVIEW'; decisionOverridden = true;
+          }
+
+          if (decisionOverridden) {
+            if (parsed.decision === 'NEXT_CLAIM' && nextClaim) {
+              parsed.nextQuestion = language === 'zh-CN' ? `好的。接下来聊聊另一段经历：${nextClaim.experienceName}。关于"${nextClaim.claim}"，能详细说说吗？` : `Alright. Let's move to ${nextClaim.experienceName}. Could you elaborate on "${nextClaim.claim}"?`;
+              parsed.spokenQuestion = parsed.nextQuestion;
+            } else if (parsed.decision === 'END_INTERVIEW') {
+              parsed.nextQuestion = language === 'zh-CN' ? "非常感谢你的回答。我们今天的面试就到此结束了。祝你生活愉快，再见！" : "Thank you for your answers. We will conclude our interview here for today. Have a great day, goodbye!";
+              parsed.spokenQuestion = parsed.nextQuestion;
+            } else if (parsed.decision === 'FOLLOW_UP') {
+              parsed.nextQuestion = language === 'zh-CN' ? "关于这一点，你能再深入讲讲技术细节吗？" : "Regarding that, could you dive deeper into the technical details?";
+              parsed.spokenQuestion = parsed.nextQuestion;
+            }
+          }
+
+          const turnType = parsed.decision === 'NEXT_CLAIM' ? 'transition' : (parsed.decision === 'REPEAT_QUESTION' ? 'repeat' : 'follow_up');
+          const uniqueCovered = Array.from(new Set(parsed.coveredPoints || [])) as string[];
+          const missingPts = (parsed.missingPoints || []) as string[];
+
+          const persistTask = async () => {
+            try {
+              const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
+                session_id: sessionId,
+                request_id: requestId,
+                question_id: questionId,
+                question: question,
+                answer: answer,
+                claim_id: currentClaim.id,
+                claim_text: currentClaim.claim,
+                experience_name: currentClaim.experienceName,
+                turn_type: turnType,
+                answer_status: parsed.answerStatus,
+                decision: parsed.decision,
+                covered_points: uniqueCovered,
+                missing_points: missingPts,
+                next_question: parsed.nextQuestion
+              });
+              if (insertError) console.error("DB Insert failed: " + insertError.message);
+
+              if (parsed.decision === 'END_INTERVIEW') {
+                 await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
+              }
+            } catch (e) {
+              console.error("Background persist failed", e);
+            }
+          };
+
+          if (ctx && ctx.waitUntil) {
+            ctx.waitUntil(persistTask());
+          } else {
+            persistTask().catch(e => console.error(e));
+          }
+
+          transcript.push({
+            requestId,
+            questionId,
+            timestamp: new Date().getTime().toString(),
+            question,
+            answer,
+            claimId: currentClaim.id,
+            claimText: currentClaim.claim,
+            experienceName: currentClaim.experienceName,
+            turnType,
+            answerStatus: parsed.answerStatus,
+            decision: parsed.decision,
+            coveredPoints: uniqueCovered,
+            missingPoints: missingPts
+          });
+          
+          parsed.transcript = transcript;
+          
+          controller.enqueue(encoder.encode(`event: complete\ndata: ${JSON.stringify(parsed)}\n\n`));
+          controller.close();
+          
+        } catch (streamError: any) {
+          console.error("Streaming error", streamError);
+          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: streamError.message })}\n\n`));
+          controller.close();
+        }
+      }
     });
 
-    let rawText = streamResponse.text || "{}";
-    rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    parsed = JSON.parse(rawText);
+    return new Response(stream, { 
+      status: 200, 
+      headers: { 
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive"
+      } 
+    });
+  } // END of if (!parsed)
 
-    const mustVerifyPoints = currentClaim.mustVerify || [];
-    parsed.coveredPoints = (parsed.coveredPoints || []).filter((p: string) => mustVerifyPoints.includes(p));
-    parsed.missingPoints = (parsed.missingPoints || []).filter((p: string) => mustVerifyPoints.includes(p) && !parsed.coveredPoints.includes(p));
-
-    let decisionOverridden = false;
-    if (parsed.answerStatus === 'clarification_request' && repeatCountForCurrentQuestion === 0 && parsed.decision !== 'REPEAT_QUESTION') {
-      parsed.decision = 'REPEAT_QUESTION'; parsed.nextQuestion = question; parsed.spokenQuestion = question; decisionOverridden = true;
-    } else if (forceNextClaim && parsed.decision !== 'NEXT_CLAIM' && parsed.decision !== 'END_INTERVIEW') {
-      parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW'; decisionOverridden = true;
-    } else if (parsed.answerStatus === 'non_answer' && consecutiveNonAnswers >= 1 && parsed.decision !== 'NEXT_CLAIM' && parsed.decision !== 'END_INTERVIEW') {
-      parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW'; decisionOverridden = true;
-    } else if ((parsed.answerStatus === 'partial' || parsed.answerStatus === 'answered') && totalQuestionsAskedForCurrentClaim < minQuestionsPerClaim && (parsed.decision === 'NEXT_CLAIM' || parsed.decision === 'END_INTERVIEW') && !forceNextClaim) {
-      parsed.decision = 'FOLLOW_UP'; decisionOverridden = true;
-    } else if (followUpCountForCurrentClaim >= maxFollowUpsPerClaim && parsed.decision === 'FOLLOW_UP') {
-      const hasMissing = (parsed.missingPoints || []).length > 0;
-      if (!hasMissing || followUpCountForCurrentClaim >= hardLimitFollowUps) {
-        parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW'; decisionOverridden = true;
-      }
-    } else if (!nextClaim && parsed.decision === 'NEXT_CLAIM') {
-      parsed.decision = 'END_INTERVIEW'; decisionOverridden = true;
-    }
-
-    if (decisionOverridden) {
-      if (parsed.decision === 'NEXT_CLAIM' && nextClaim) {
-        parsed.nextQuestion = language === 'zh-CN' ? `好的。接下来聊聊另一段经历：${nextClaim.experienceName}。关于"${nextClaim.claim}"，能详细说说吗？` : `Alright. Let's move to ${nextClaim.experienceName}. Could you elaborate on "${nextClaim.claim}"?`;
-        parsed.spokenQuestion = parsed.nextQuestion;
-      } else if (parsed.decision === 'END_INTERVIEW') {
-        parsed.nextQuestion = language === 'zh-CN' ? "非常感谢你的回答。我们今天的面试就到此结束了。祝你生活愉快，再见！" : "Thank you for your answers. We will conclude our interview here for today. Have a great day, goodbye!";
-        parsed.spokenQuestion = parsed.nextQuestion;
-      } else if (parsed.decision === 'FOLLOW_UP') {
-        parsed.nextQuestion = language === 'zh-CN' ? "关于这一点，你能再深入讲讲技术细节吗？" : "Regarding that, could you dive deeper into the technical details?";
-        parsed.spokenQuestion = parsed.nextQuestion;
-      }
-    }
-  }
-
-  // 1. Atomic insertion of the entirely resolved turn!
+  // -----------------------------------------------------
+  // FALLBACK OR FAST-PATH (When parsed is populated early)
+  // -----------------------------------------------------
   const turnType = parsed.decision === 'NEXT_CLAIM' ? 'transition' : (parsed.decision === 'REPEAT_QUESTION' ? 'repeat' : 'follow_up');
-  
   const uniqueCovered = Array.from(new Set(parsed.coveredPoints || [])) as string[];
   const missingPts = (parsed.missingPoints || []) as string[];
 
-  // 1. Assemble the DB insertion tasks
   const persistTask = async () => {
     try {
       const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
@@ -455,12 +579,8 @@ ${answer}
         missing_points: missingPts,
         next_question: parsed.nextQuestion
       });
+      if (insertError) console.error("DB Insert failed: " + insertError.message);
 
-      if (insertError) {
-        console.error("DB Insert failed: " + insertError.message);
-      }
-
-      // 2. Atomic state mutation on session end
       if (parsed.decision === 'END_INTERVIEW') {
          await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
       }
@@ -469,7 +589,6 @@ ${answer}
     }
   };
 
-  // Schedule in edge runtime background
   if (ctx && ctx.waitUntil) {
     ctx.waitUntil(persistTask());
   } else {
@@ -494,5 +613,6 @@ ${answer}
   
   parsed.transcript = transcript;
 
+  // We return a standard JSON response for the fast-path so the client degrades gracefully!
   return new Response(JSON.stringify(parsed), { status: 200, headers: { "Content-Type": "application/json" } });
 }

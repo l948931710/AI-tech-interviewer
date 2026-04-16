@@ -52,6 +52,7 @@ export interface LLMUsageParams {
 
   // Error info
   errorCode?: string;
+  segmentIndex?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,27 +79,44 @@ export async function logLLMUsage(
   try {
     const estimatedCost = estimateCost(params);
 
+    let payload: any = {
+      session_id: params.sessionId,
+      transcript_id: params.transcriptId || null,
+      request_id: params.requestId || null,
+      endpoint: params.endpoint,
+      provider: 'google',
+      model: params.model,
+      billing_mode: params.billingMode,
+      prompt_tokens: params.promptTokenCount || null,
+      completion_tokens: params.responseTokenCount || null,
+      total_tokens: params.totalTokenCount || null,
+      latency_ms: params.latencyMs,
+      estimated_cost: estimatedCost,
+      success: params.success,
+      error_code: params.errorCode || null
+    };
+
+    if (params.segmentIndex !== undefined) {
+      payload.segment_index = params.segmentIndex;
+    }
+
     const { error } = await supabase
       .from('llm_usage_logs')
-      .insert({
-        session_id: params.sessionId,
-        transcript_id: params.transcriptId || null,
-        request_id: params.requestId || null,
-        endpoint: params.endpoint,
-        provider: 'google',
-        model: params.model,
-        billing_mode: params.billingMode,
-        prompt_tokens: params.promptTokenCount || null,
-        completion_tokens: params.responseTokenCount || null,
-        total_tokens: params.totalTokenCount || null,
-        latency_ms: params.latencyMs,
-        estimated_cost: estimatedCost,
-        success: params.success,
-        error_code: params.errorCode || null,
-      });
+      .insert(payload);
 
     if (error) {
-      console.error('[LLM-Logger] Failed to log usage:', error.message);
+      if (error.message.includes('segment_index')) {
+        console.warn('[LLM-Logger] segment_index missing in DB schema cache. Retrying without it.');
+        delete payload.segment_index;
+        // Optionally append it to error_code to preserve the data temporarily
+        payload.error_code = `${payload.error_code || 'SCHEMA_NOCACHE'} [segment_index:${params.segmentIndex}]`.trim();
+        const retry = await supabase.from('llm_usage_logs').insert(payload);
+        if (retry.error) {
+           console.error('[LLM-Logger] Retry failed:', retry.error.message);
+        }
+      } else {
+        console.error('[LLM-Logger] Failed to log usage:', error.message);
+      }
     }
   } catch (e: any) {
     // Fire-and-forget: never let logging failures break the interview flow

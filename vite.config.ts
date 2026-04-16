@@ -133,6 +133,11 @@ export default defineConfig(({mode}) => {
           server.middlewares.use('/api/agent/update-status', (req, res) => {
             proxyToHandler(req, res, '/api/agent/update-status.ts');
           });
+
+          // Route: /api/agent/load-session
+          server.middlewares.use('/api/agent/load-session', (req, res) => {
+            proxyToHandler(req, res, '/api/agent/load-session.ts');
+          });
         }
       }
     ],

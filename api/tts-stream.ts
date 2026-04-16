@@ -44,7 +44,7 @@ export default async function handler(req: Request) {
 
   try {
     const ai = getAI();
-    const { text, sessionId } = await req.json();
+    const { text, sessionId, segmentIndex } = await req.json();
 
     if (!text) {
       return new Response(JSON.stringify({ error: "Missing required field: text" }), {
@@ -104,7 +104,8 @@ export default async function handler(req: Request) {
               model: 'gemini-2.5-flash-preview-tts', billingMode: 'tts_audio',
               latencyMs: Date.now() - llmStartTime, success: true,
               promptTokenCount: estimatedPromptTokens,
-              totalTokenCount: estimatedPromptTokens
+              totalTokenCount: estimatedPromptTokens,
+              segmentIndex
             });
           }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -117,7 +118,8 @@ export default async function handler(req: Request) {
               sessionId, endpoint: 'tts-stream',
               model: 'gemini-2.5-flash-preview-tts', billingMode: 'tts_audio',
               latencyMs: Date.now() - llmStartTime, success: false,
-              errorCode: e.message || 'TTS_STREAM_ERROR'
+              errorCode: e.message || 'TTS_STREAM_ERROR',
+              segmentIndex
             });
           }
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: e.message || "Stream error" })}\n\n`));

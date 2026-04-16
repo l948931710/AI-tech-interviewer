@@ -229,10 +229,27 @@ export function usePlaybackControl(language: 'zh-CN' | 'en-US' = 'zh-CN') {
     });
   }, [stopAudio]);
 
+  /**
+   * Pre-initialize and unlock the AudioContext on a user gesture.
+   * Call this early (e.g. on "Start Interview" click) so the context
+   * is warm and ready when the first audio chunk arrives.
+   * The lazy init inside playTTS/playTTSStream remains as a fallback
+   * for reconnection paths that lack a user gesture.
+   */
+  const initAudioContext = useCallback(async () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (audioCtxRef.current.state === 'suspended') {
+      await audioCtxRef.current.resume();
+    }
+  }, []);
+
   return {
     playTTS,
     playTTSStream,
     fallbackTTS,
-    stopAudio
+    stopAudio,
+    initAudioContext
   };
 }

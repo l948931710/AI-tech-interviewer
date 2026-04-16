@@ -5,7 +5,7 @@ import { callAiBackend, withRetry, MODELS, getAuthHeaders, getInterviewSessionId
  * Yields base64 audio chunks as they arrive from the server,
  * letting the playback layer start playing before the full response is ready.
  */
-export async function* generateTTSStream(text: string): AsyncGenerator<string, void, unknown> {
+export async function* generateTTSStream(text: string, segmentIndex?: number): AsyncGenerator<string, void, unknown> {
   const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:5173/api';
   const authHeaders = await getAuthHeaders();
   const sessionId = getInterviewSessionId();
@@ -19,7 +19,7 @@ export async function* generateTTSStream(text: string): AsyncGenerator<string, v
   const response = await fetch(`${baseUrl}/tts-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders },
-    body: JSON.stringify({ text, voiceName: 'Kore', sessionId }),
+    body: JSON.stringify({ text, voiceName: 'Kore', sessionId, segmentIndex }),
     signal: controller.signal
   });
 
