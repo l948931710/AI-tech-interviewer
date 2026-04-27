@@ -13,3 +13,8 @@ coverage/
 .env.beta
 !.env.example
 *.sql
+
+# Test infrastructure (local-only, not committed)
+tests/
+vitest.config.ts
+api/agent/decision-engine.ts
