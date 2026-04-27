@@ -1,9 +1,0 @@
-CaseID,Persona,Turns,FollowUpQ_Score,Detection_Score,NonAnswerCaught,Loop?,Status
-case-004,strong,4,0.75,1,false,false,STRONG_HIRE
-case-005,average,4,0.75,1,false,false,LEAN_HIRE
-case-006,bluffer,4,0.50,1,false,false,NO_HIRE
-case-007,evasive,2,1.00,1,true,false,NO_HIRE
-case-008,strong,4,0.75,1,false,false,STRONG_HIRE
-case-009,average,4,0.75,1,false,false,LEAN_NO_HIRE
-case-0010,bluffer,4,0.75,1,false,false,NO_HIRE
-case-0011,evasive,2,1.00,1,true,false,NO_HIRE

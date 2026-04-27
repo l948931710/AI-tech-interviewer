@@ -14,6 +14,14 @@ coverage/
 !.env.example
 *.sql
 
+# Development scratch files & one-off patches
+scratch/
+patch*.py
+
+# Simulation output & benchmark data (exposes interview strategy)
+output/
+benchmarks/
+
 # Test infrastructure (local-only, not committed)
 tests/
 vitest.config.ts

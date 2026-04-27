@@ -7,7 +7,11 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function checkSession() {
-  const sessionId = "mnwrfbh7shb255ys8nj";
+  const sessionId = process.argv[2];
+  if (!sessionId) {
+    console.error("Usage: node scripts/checkSession.mjs <session-id>");
+    process.exit(1);
+  }
   
   const { data, error } = await supabase
     .from('interview_sessions')
