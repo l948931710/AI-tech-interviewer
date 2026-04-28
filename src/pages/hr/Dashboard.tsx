@@ -9,7 +9,6 @@ import {
   TrendingUp, Clock, FilePlus, MoreHorizontal, LogOut, ChevronRight, Loader2
 } from 'lucide-react';
 import { getAuthHeaders } from '../../agent/core';
-import FulingLogo from '../../assets/fuling-logo.png';
 
 // Helper to format relative time for recent items (within 24 hours)
 const formatRelativeTime = (timestampMs: number) => {
@@ -56,12 +55,12 @@ export default function Dashboard() {
 
   const getRecommendationColor = (rec: string) => {
     switch (rec) {
-      case 'STRONG_HIRE': return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      case 'HIRE': return 'bg-green-100 text-green-800 border-green-200';
-      case 'LEAN_HIRE': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'LEAN_NO_HIRE': return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'NO_HIRE': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+      case 'STRONG_HIRE': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+      case 'HIRE': return 'bg-green-500/10 text-green-400 border-green-500/20';
+      case 'LEAN_HIRE': return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
+      case 'LEAN_NO_HIRE': return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
+      case 'NO_HIRE': return 'bg-red-500/10 text-red-400 border-red-500/20';
+      default: return 'bg-white/5 text-white/70 border-white/10';
     }
   };
 
@@ -73,8 +72,6 @@ export default function Dashboard() {
     
     loadSessions();
 
-    // In a real app with Supabase, you would use Realtime subscriptions here.
-    // For now, we poll every 15 seconds to simulate live updates since local storage events no longer fire across tabs.
     const interval = setInterval(loadSessions, 15000);
     return () => clearInterval(interval);
   }, []);
@@ -107,7 +104,7 @@ export default function Dashboard() {
       setCopiedId(id);
       
       if (token) {
-        setToastMessage({ title: '链接已复制', message: '已生成全新的安全邀请链接，失效期为 24 小时。旧链接已作废。' });
+        setToastMessage({ title: 'Link Copied', message: 'A secure 24-hour invite link has been generated.' });
       }
       
       setTimeout(() => setCopiedId(null), 2000);
@@ -122,14 +119,12 @@ export default function Dashboard() {
       const USE_LOCAL = import.meta.env.VITE_USE_LOCAL_DB === 'true';
 
       if (USE_LOCAL) {
-        // Local dev: generate report client-side since server can't access localStorage
         const { generateReport } = await import('../../agent');
         const session = await db.getSession(sessionId);
         if (!session) throw new Error('Session not found');
         const report = await generateReport(session.transcript || [], session.claims);
         await db.completeSession(sessionId, report);
       } else {
-        // Production: generate report server-side
         const baseUrl = `${window.location.origin}/api`;
         const authHeaders = await getAuthHeaders();
         const response = await fetch(`${baseUrl}/generate-report`, {
@@ -143,7 +138,6 @@ export default function Dashboard() {
           throw new Error(`Report generation failed: ${response.status} - ${errorBody}`);
         }
 
-        // Handle streaming response to bypass 60s timeout
         if (response.body) {
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
@@ -157,13 +151,9 @@ export default function Dashboard() {
               finalJsonStr += decoder.decode(value, { stream: true });
             }
           }
-          
-          // Decode any remaining bytes
           finalJsonStr += decoder.decode();
 
-          // Try to parse the final accumulated result
           try {
-            // Trim whitespace (Edge API sends spaces as keep-alive pings)
             const result = JSON.parse(finalJsonStr.trim());
             if (result.error) {
                throw new Error(result.error);
@@ -175,13 +165,12 @@ export default function Dashboard() {
         }
       }
 
-      setToastMessage({ title: '报告生成完毕', message: 'AI 评估报告已生成，可立即查看。' });
-      // Refresh sessions to show updated status
+      setToastMessage({ title: 'Report Ready', message: 'AI evaluation report generated successfully.' });
       const data = await db.listSessions();
       setSessions(data);
     } catch (e: any) {
       console.error('Failed to generate report:', e);
-      setToastMessage({ title: '报告生成失败', message: e.message || '请稍后重试。' });
+      setToastMessage({ title: 'Generation Failed', message: e.message || 'Please try again later.' });
     } finally {
       setGeneratingReportId(null);
     }
@@ -190,149 +179,147 @@ export default function Dashboard() {
   const activeInterviews = sessions.filter(s => s.status !== 'COMPLETED').length;
   const pendingInvites = sessions.filter(s => s.status === 'PENDING').length;
   const reportsReady = sessions.filter(s => s.status === 'COMPLETED').length;
-  const interviewEndedCount = sessions.filter(s => s.status === 'INTERVIEW_ENDED').length;
   const inProgressCount = sessions.filter(s => s.status === 'IN_PROGRESS').length;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900 font-sans">
+    <div className="flex h-screen overflow-hidden bg-background text-white font-body">
       
       {/* Toast Notification Container */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 bg-white border border-slate-200 shadow-xl rounded-xl p-4 flex items-start gap-3 z-50 animate-in slide-in-from-bottom-5 duration-300">
-          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-            <CheckCircle className="text-indigo-600" size={16} />
+        <div className="fixed bottom-6 right-6 glass-panel rounded-xl p-4 flex items-start gap-3 z-50 animate-in slide-in-from-bottom-5 duration-300 border border-white/10 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
+          <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0 border border-primary/30">
+            <CheckCircle className="text-primary" size={16} />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-slate-900">{toastMessage.title}</h4>
-            <p className="text-sm text-slate-600 mt-0.5">{toastMessage.message}</p>
+            <h4 className="text-sm font-bold text-white">{toastMessage.title}</h4>
+            <p className="text-sm text-white/60 mt-0.5">{toastMessage.message}</p>
           </div>
-          <button onClick={() => setToastMessage(null)} className="text-slate-400 hover:text-slate-600 ml-2">&times;</button>
+          <button onClick={() => setToastMessage(null)} className="text-white/40 hover:text-white ml-2">&times;</button>
         </div>
       )}
 
       {/* Sidebar */}
-      <aside className="w-64 border-r border-slate-200 bg-white flex flex-col shrink-0">
+      <aside className="w-64 border-r border-white/5 bg-white/5 flex flex-col shrink-0 relative z-20 backdrop-blur-xl">
         <div className="p-6 flex items-center gap-3">
-          <img src={FulingLogo} alt="Fuling Logo" className="h-10 object-contain ml-2" />
+          <div className="text-2xl font-bold tracking-tight font-display aura-gradient-text ml-2">AURA</div>
         </div>
         
-        <nav className="flex-1 px-4 space-y-1 overflow-y-auto pb-4">
+        <nav className="flex-1 px-4 space-y-2 overflow-y-auto pb-4 mt-4">
           <button 
             onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'dashboard' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'dashboard' ? 'bg-white/10 text-white shadow-[inset_2px_0_0_0_#00f0ff]' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
           >
-            <LayoutDashboard size={20} />
-            控制台
+            <LayoutDashboard size={18} className={activeTab === 'dashboard' ? 'text-primary' : ''} />
+            Dashboard
           </button>
           
           <button 
             onClick={() => setActiveTab('candidates')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'candidates' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'candidates' ? 'bg-white/10 text-white shadow-[inset_2px_0_0_0_#00f0ff]' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
           >
-            <Users size={20} />
-            候选人
+            <Users size={18} className={activeTab === 'candidates' ? 'text-primary' : ''} />
+            Candidates
           </button>
           
           <button 
             onClick={() => setActiveTab('reports')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'reports' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'reports' ? 'bg-white/10 text-white shadow-[inset_2px_0_0_0_#00f0ff]' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
           >
-            <FileText size={20} />
-            评估报告
+            <FileText size={18} className={activeTab === 'reports' ? 'text-primary' : ''} />
+            Reports
             {reportsReady > 0 && (
-              <span className="ml-auto bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs">{reportsReady}</span>
+              <span className="ml-auto bg-primary/20 text-primary py-0.5 px-2 rounded-full text-[10px] font-bold border border-primary/20">{reportsReady}</span>
             )}
           </button>
-          
-          {/* Work in progress links based on DataHire template */}
-          <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors opacity-60 cursor-not-allowed hidden">
-            <Briefcase size={20} />
-            Jobs
-          </button>
 
-          <div className="pt-6 pb-2 px-3 text-xs font-bold text-slate-400 uppercase tracking-wider">系统设置</div>
+          <div className="pt-8 pb-2 px-4 text-[10px] font-bold text-white/30 uppercase tracking-[0.2em]">System</div>
           
-          <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors opacity-50 cursor-not-allowed">
-            <Settings size={20} />
-            设置
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-white/30 hover:bg-white/5 transition-colors cursor-not-allowed">
+            <Settings size={18} />
+            Settings
           </button>
         </nav>
         
-        <div className="p-4 border-t border-slate-200">
-          <div className="flex items-center gap-3 p-2">
-            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden text-slate-500 font-bold">
+        <div className="p-4 border-t border-white/5">
+          <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors cursor-pointer">
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden text-white/70 font-bold border border-white/10">
               HR
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-slate-900 truncate">管理员</p>
-              <p className="text-xs text-slate-500 truncate">招聘团队</p>
+              <p className="text-sm font-bold text-white truncate">Administrator</p>
+              <p className="text-xs text-white/40 truncate">Recruitment</p>
             </div>
             <button
               onClick={async () => {
                 await supabase.auth.signOut();
                 navigate('/hr', { replace: true });
               }}
-              title="退出登录"
-              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              title="Logout"
+              className="p-2 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
             >
-              <LogOut size={18} />
+              <LogOut size={16} />
             </button>
           </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         
+        {/* Subtle Background Elements */}
+        <div className="absolute inset-0 z-0 pointer-events-none opacity-50">
+          <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full aura-gradient opacity-[0.03] blur-[120px]"></div>
+        </div>
+
         {/* Top Header */}
-        <header className="h-16 border-b border-slate-200 bg-white px-8 flex items-center justify-between shrink-0">
+        <header className="h-20 border-b border-white/5 bg-background/50 backdrop-blur-md px-8 flex items-center justify-between shrink-0 relative z-10">
           <div className="flex-1 max-w-xl">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" size={18} />
               <input 
-                className="w-full bg-slate-50 border-none rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/20 placeholder:text-slate-400 transition-all outline-none" 
-                placeholder="搜索候选人、面试或职位..." 
+                className="w-full bg-black/20 border border-white/10 rounded-xl pl-12 pr-4 py-3 text-[13px] focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-white/30 text-white transition-all outline-none" 
+                placeholder="Search candidates, roles, or sessions..." 
                 type="text"
               />
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button className="p-2 text-slate-400 hover:text-slate-600 relative transition-colors">
-              <Bell size={20} />
+            <button className="p-2 text-white/50 hover:text-white relative transition-colors bg-white/5 rounded-full border border-white/10">
+              <Bell size={18} />
               {inProgressCount > 0 && (
-                <span className="absolute top-2 right-2 w-2 h-2 bg-indigo-500 rounded-full border-2 border-white"></span>
+                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-primary rounded-full border-2 border-background animate-pulse"></span>
               )}
             </button>
-            <button className="p-2 text-slate-400 hover:text-slate-600 transition-colors">
-              <HelpCircle size={20} />
+            <button className="p-2 text-white/50 hover:text-white transition-colors bg-white/5 rounded-full border border-white/10">
+              <HelpCircle size={18} />
             </button>
           </div>
         </header>
 
         {/* Dashboard Content Scrollable Area */}
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 overflow-y-auto p-8 relative z-10">
           <div className="max-w-6xl mx-auto space-y-8">
             
             {/* Page Title & Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-extrabold text-slate-900 capitalize">
-                  {activeTab === 'dashboard' && '面试控制台'}
-                  {activeTab === 'candidates' && '候选人列表'}
-                  {activeTab === 'reports' && 'AI评估报告'}
+                <h2 className="text-3xl font-bold font-display tracking-tight text-white capitalize">
+                  {activeTab === 'dashboard' && 'Command Center'}
+                  {activeTab === 'candidates' && 'Candidates Roster'}
+                  {activeTab === 'reports' && 'AI Intelligence Reports'}
                 </h2>
-                <p className="text-slate-500 text-sm mt-1">
-                  {activeTab === 'dashboard' && '监控和管理正在进行的 AI 技术面试。'}
-                  {activeTab === 'candidates' && '查看所有候选人背景及当前招聘漏斗状态。'}
-                  {activeTab === 'reports' && '查看已完成的 AI 评估分析及面试记录。'}
+                <p className="text-white/50 text-[13px] mt-2 font-light">
+                  {activeTab === 'dashboard' && 'Monitor and manage active technical interview sessions.'}
+                  {activeTab === 'candidates' && 'Track candidate progression through the hiring pipeline.'}
+                  {activeTab === 'reports' && 'Review deep-dive AI evaluations and session transcripts.'}
                 </p>
               </div>
               <Link 
                 to="/hr/new" 
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all whitespace-nowrap"
+                className="aura-gradient text-background px-6 py-3 rounded-xl font-bold text-[13px] tracking-wider uppercase flex items-center gap-2 hover:opacity-90 shadow-[0_0_20px_rgba(0,240,255,0.2)] transition-all whitespace-nowrap"
               >
                 <Plus size={18} />
-                新建面试
+                New Interview
               </Link>
             </div>
 
@@ -341,174 +328,174 @@ export default function Dashboard() {
               <>
                 {/* Stat Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group">
-                    <div className="flex items-start justify-between">
+                  <div className="glass-panel p-6 rounded-2xl border border-white/10 shadow-lg relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-full h-[1px] aura-gradient opacity-30"></div>
+                    <div className="flex items-start justify-between relative z-10">
                       <div>
-                        <p className="text-sm font-medium text-slate-500 mb-1">进行中的面试</p>
-                        <h3 className="text-3xl font-extrabold text-slate-900">{activeInterviews}</h3>
+                        <p className="text-[11px] font-bold tracking-widest uppercase text-white/40 mb-2">Active Sessions</p>
+                        <h3 className="text-4xl font-display font-bold text-white">{activeInterviews}</h3>
                       </div>
-                      <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
-                        <Video className="text-indigo-600" size={24} />
+                      <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10 group-hover:bg-white/10 transition-colors shadow-[0_0_15px_rgba(0,240,255,0.1)]">
+                        <Video className="text-primary" size={20} />
                       </div>
                     </div>
                     {inProgressCount > 0 ? (
-                      <div className="mt-4 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                        <span className="text-xs font-bold text-indigo-600">当前有 {inProgressCount} 场面试正在进行</span>
+                      <div className="mt-6 flex items-center gap-2 relative z-10">
+                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(0,240,255,0.8)]"></span>
+                        <span className="text-[11px] font-bold tracking-wider uppercase text-primary">{inProgressCount} Interview(s) In Progress</span>
                       </div>
                     ) : (
-                      <div className="mt-4 flex items-center gap-2 text-xs text-slate-400 font-medium">
-                        等待候选人加入
+                      <div className="mt-6 flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/30 font-medium relative z-10">
+                        Awaiting Candidate Join
                       </div>
                     )}
                   </div>
                   
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm group">
-                    <div className="flex items-start justify-between">
+                  <div className="glass-panel p-6 rounded-2xl border border-white/10 shadow-lg relative overflow-hidden group">
+                    <div className="flex items-start justify-between relative z-10">
                       <div>
-                        <p className="text-sm font-medium text-slate-500 mb-1">已邀请(待参加)</p>
-                        <h3 className="text-3xl font-extrabold text-slate-900">{pendingInvites}</h3>
+                        <p className="text-[11px] font-bold tracking-widest uppercase text-white/40 mb-2">Pending Invites</p>
+                        <h3 className="text-4xl font-display font-bold text-white">{pendingInvites}</h3>
                       </div>
-                      <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center group-hover:bg-amber-100 transition-colors">
-                        <Mail className="text-amber-500" size={24} />
+                      <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10 group-hover:bg-white/10 transition-colors">
+                        <Mail className="text-white/70" size={20} />
                       </div>
                     </div>
-                    <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+                    <div className="mt-6 flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-white/40 font-medium relative z-10">
                       <Clock size={14} />
-                      等待候选人响应
+                      Awaiting Response
                     </div>
                   </div>
                   
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm group">
-                    <div className="flex items-start justify-between">
+                  <div className="glass-panel p-6 rounded-2xl border border-white/10 shadow-lg relative overflow-hidden group">
+                    <div className="flex items-start justify-between relative z-10">
                       <div>
-                        <p className="text-sm font-medium text-slate-500 mb-1">报告生成完毕</p>
-                        <h3 className="text-3xl font-extrabold text-slate-900">{reportsReady}</h3>
+                        <p className="text-[11px] font-bold tracking-widest uppercase text-white/40 mb-2">Reports Ready</p>
+                        <h3 className="text-4xl font-display font-bold text-white">{reportsReady}</h3>
                       </div>
-                      <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
-                        <CheckSquare className="text-emerald-500" size={24} />
+                      <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10 group-hover:bg-white/10 transition-colors shadow-[0_0_15px_rgba(176,38,255,0.1)]">
+                        <CheckSquare className="text-[#b026ff]" size={20} />
                       </div>
                     </div>
-                    <div className="mt-4 flex items-center gap-1.5 text-xs text-emerald-600 font-bold">
+                    <div className="mt-6 flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-[#b026ff] relative z-10">
                       <TrendingUp size={14} />
-                      可供 HR 查看
+                      Available for Review
                     </div>
                   </div>
                 </div>
 
                 {/* Bottom Grid Info */}
                 <div className="grid grid-cols-1 gap-6">
-                  {/* Pipeline Distribution Chart (Visual Polish) */}
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-                    <h4 className="font-bold text-slate-900 mb-6">招聘漏斗分布</h4>
-                    <div className="flex-1 flex flex-col justify-center gap-6 px-4 pb-4">
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs font-bold text-slate-700">
-                          <span>待参加 / 未开启</span>
+                  {/* Pipeline Distribution Chart */}
+                  <div className="glass-panel p-8 rounded-2xl border border-white/10 shadow-lg flex flex-col">
+                    <h4 className="font-display font-bold text-white mb-8 tracking-tight">Pipeline Distribution</h4>
+                    <div className="flex-1 flex flex-col justify-center gap-8 px-2 pb-4">
+                      <div className="space-y-3">
+                        <div className="flex justify-between text-[11px] font-bold tracking-widest uppercase text-white/60">
+                          <span>Pending / Unstarted</span>
                           <span>{sessions.length ? Math.round((pendingInvites / sessions.length) * 100) : 0}%</span>
                         </div>
-                        <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                          <div className="bg-amber-400 h-full rounded-full transition-all duration-1000" style={{ width: `${sessions.length ? (pendingInvites / sessions.length) * 100 : 0}%` }}></div>
+                        <div className="w-full bg-black/40 h-1.5 rounded-full overflow-hidden border border-white/5">
+                          <div className="bg-white/40 h-full rounded-full transition-all duration-1000" style={{ width: `${sessions.length ? (pendingInvites / sessions.length) * 100 : 0}%` }}></div>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs font-bold text-slate-700">
-                          <span>面试进行中</span>
-                          <span>{sessions.length ? Math.round((inProgressCount / sessions.length) * 100) : 0}%</span>
+                      <div className="space-y-3">
+                        <div className="flex justify-between text-[11px] font-bold tracking-widest uppercase text-white/60">
+                          <span className="text-primary">In Progress</span>
+                          <span className="text-primary">{sessions.length ? Math.round((inProgressCount / sessions.length) * 100) : 0}%</span>
                         </div>
-                        <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                          <div className="bg-indigo-500 h-full rounded-full transition-all duration-1000" style={{ width: `${sessions.length ? (inProgressCount / sessions.length) * 100 : 0}%` }}></div>
+                        <div className="w-full bg-black/40 h-1.5 rounded-full overflow-hidden border border-white/5 relative">
+                          <div className="absolute inset-0 bg-primary/20 blur-[2px]"></div>
+                          <div className="bg-primary h-full rounded-full transition-all duration-1000 relative z-10 shadow-[0_0_10px_rgba(0,240,255,0.8)]" style={{ width: `${sessions.length ? (inProgressCount / sessions.length) * 100 : 0}%` }}></div>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs font-bold text-slate-700">
-                          <span>已评估完毕</span>
-                          <span>{sessions.length ? Math.round((reportsReady / sessions.length) * 100) : 0}%</span>
+                      <div className="space-y-3">
+                        <div className="flex justify-between text-[11px] font-bold tracking-widest uppercase text-white/60">
+                          <span className="text-[#b026ff]">Evaluated</span>
+                          <span className="text-[#b026ff]">{sessions.length ? Math.round((reportsReady / sessions.length) * 100) : 0}%</span>
                         </div>
-                        <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                          <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: `${sessions.length ? (reportsReady / sessions.length) * 100 : 0}%` }}></div>
+                        <div className="w-full bg-black/40 h-1.5 rounded-full overflow-hidden border border-white/5 relative">
+                          <div className="bg-[#b026ff] h-full rounded-full transition-all duration-1000 relative z-10 shadow-[0_0_10px_rgba(176,38,255,0.8)]" style={{ width: `${sessions.length ? (reportsReady / sessions.length) * 100 : 0}%` }}></div>
                         </div>
                       </div>
                     </div>
                   </div>
-
-                  {/* Removed Promo Card */}
                 </div>
               </>
             )}
 
             {/* CANDIDATES TAB CONTENT */}
             {activeTab === 'candidates' && (
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-                  <h4 className="font-bold text-slate-900">候选人名单</h4>
-                  <div className="flex items-center gap-2">
-                    <button className="text-sm font-medium text-slate-500 hover:text-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors">筛选</button>
-                    <button className="text-sm font-medium text-slate-500 hover:text-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors">导出</button>
+              <div className="glass-panel rounded-2xl border border-white/10 shadow-lg overflow-hidden">
+                <div className="px-6 py-5 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+                  <h4 className="font-display font-bold text-white tracking-tight">Candidates Roster</h4>
+                  <div className="flex items-center gap-3">
+                    <button className="text-[11px] font-bold uppercase tracking-widest text-white/60 hover:text-white px-4 py-2 rounded-lg border border-white/10 bg-white/5 transition-colors">Filter</button>
+                    <button className="text-[11px] font-bold uppercase tracking-widest text-white/60 hover:text-white px-4 py-2 rounded-lg border border-white/10 bg-white/5 transition-colors">Export</button>
                   </div>
                 </div>
                 {sessions.length === 0 ? (
-                  <div className="p-16 text-center text-slate-500">
-                    <Users className="mx-auto h-12 w-12 text-slate-300 mb-4" />
-                    <h3 className="text-lg font-bold text-slate-900 mb-2">暂无候选人</h3>
-                    <p className="text-sm">新建一个面试来添加候选人。</p>
+                  <div className="p-20 text-center text-white/40">
+                    <Users className="mx-auto h-12 w-12 text-white/20 mb-6" />
+                    <h3 className="text-xl font-display font-bold text-white mb-2">No Candidates Found</h3>
+                    <p className="text-[13px] font-light text-white/50">Create a new interview session to invite a candidate.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
-                      <thead className="bg-slate-50 border-b border-slate-100">
+                      <thead className="bg-black/20 border-b border-white/10">
                         <tr>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">候选人信息</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">投递岗位</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">求职状态</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">添加时间</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">Candidate Info</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">Target Role</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">Status</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em] text-right">Added</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-white/5">
                         {sessions.map(session => (
-                          <tr key={session.id} className="hover:bg-slate-50/50 transition-colors group">
+                          <tr key={session.id} className="hover:bg-white/[0.03] transition-colors group">
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
+                                <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white font-display font-bold text-sm shrink-0">
                                   {session.candidateInfo.name.substring(0, 2).toUpperCase()}
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="text-sm font-bold text-slate-900 truncate">{session.candidateInfo.name}</p>
-                                  <p className="text-xs text-slate-500 truncate">{session.candidateInfo.email || '未提供邮箱'}</p>
+                                  <p className="text-sm font-bold text-white truncate">{session.candidateInfo.name}</p>
+                                  <p className="text-[11px] text-white/40 truncate font-light mt-0.5">{session.candidateInfo.email || 'No email provided'}</p>
                                 </div>
                               </div>
                             </td>
                             <td className="px-6 py-4">
-                              <span className="text-sm font-medium text-slate-700">{session.candidateInfo.jobRole || 'Engineer'}</span>
+                              <span className="text-[13px] text-white/70">{session.candidateInfo.jobRole || 'Engineer'}</span>
                             </td>
                             <td className="px-6 py-4">
                               {session.status === 'COMPLETED' ? (
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                                  已评估
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-[#b026ff]/10 text-[#b026ff] border border-[#b026ff]/20">
+                                  Evaluated
                                 </span>
                               ) : session.status === 'GENERATING' ? (
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-600/20">
-                                  报告生成中
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                                  Analyzing
                                 </span>
                               ) : session.status === 'INTERVIEW_ENDED' ? (
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20">
-                                  待生成报告
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                  Pending Report
                                 </span>
                               ) : session.status === 'IN_PROGRESS' ? (
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/20">
-                                  面试中
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
+                                  In Progress
                                 </span>
                               ) : session.status === 'NOT_FINISHED' ? (
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-600/20">
-                                  未完成
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 border border-orange-500/20">
+                                  Incomplete
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-500/10">
-                                  等待参加
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-white/5 text-white/50 border border-white/10">
+                                  Awaiting Join
                                 </span>
                               )}
                             </td>
-                            <td className="px-6 py-4 text-right text-sm text-slate-500">
+                            <td className="px-6 py-4 text-right text-[12px] text-white/40 font-light">
                               {formatRelativeTime(session.createdAt)}
                             </td>
                           </tr>
@@ -522,87 +509,87 @@ export default function Dashboard() {
 
             {/* REPORTS TAB CONTENT */}
             {activeTab === 'reports' && (
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-                  <h4 className="font-bold text-slate-900">AI 评估报告</h4>
+              <div className="glass-panel rounded-2xl border border-white/10 shadow-lg overflow-hidden">
+                <div className="px-6 py-5 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+                  <h4 className="font-display font-bold text-white tracking-tight">Intelligence Reports</h4>
                   <div className="flex items-center gap-2">
                     <select 
                       value={reportFilter} 
                       onChange={(e) => setReportFilter(e.target.value as any)}
-                      className="text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      className="text-[11px] font-bold uppercase tracking-widest text-white bg-black/50 border border-white/20 rounded-lg px-4 py-2 focus:outline-none focus:border-primary appearance-none outline-none"
                     >
-                      <option value="ALL">所有状态</option>
-                      <option value="COMPLETED">已评估</option>
-                      <option value="GENERATING">生成中</option>
-                      <option value="INTERVIEW_ENDED">待生成报告</option>
-                      <option value="IN_PROGRESS">面试中</option>
-                      <option value="PENDING">未开启</option>
+                      <option value="ALL">All Statuses</option>
+                      <option value="COMPLETED">Evaluated</option>
+                      <option value="GENERATING">Analyzing</option>
+                      <option value="INTERVIEW_ENDED">Pending Report</option>
+                      <option value="IN_PROGRESS">In Progress</option>
+                      <option value="PENDING">Awaiting Join</option>
                     </select>
                   </div>
                 </div>
                 {sessions.filter(s => reportFilter === 'ALL' || s.status === reportFilter).length === 0 ? (
-                  <div className="p-16 text-center text-slate-500">
-                    <FilePlus className="mx-auto h-12 w-12 text-slate-300 mb-4" />
-                    <h3 className="text-lg font-bold text-slate-900 mb-2">暂无报告</h3>
-                    <p className="text-sm">候选人完成面试后，自动生成的评估报告将显示在这里。</p>
+                  <div className="p-20 text-center text-white/40">
+                    <FilePlus className="mx-auto h-12 w-12 text-white/20 mb-6" />
+                    <h3 className="text-xl font-display font-bold text-white mb-2">No Reports Available</h3>
+                    <p className="text-[13px] font-light text-white/50">Completed interviews will automatically generate intelligence reports here.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
-                      <thead className="bg-slate-50 border-b border-slate-100">
+                      <thead className="bg-black/20 border-b border-white/10">
                         <tr>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">候选人 / 日期</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">面试时长</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">系统评分</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">录用建议</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">Candidate / Date</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">Duration</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">System Score</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">Decision</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em] text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-white/5">
                         {sessions.filter(s => reportFilter === 'ALL' || s.status === reportFilter).map(session => (
-                          <tr key={session.id} className="hover:bg-slate-50/50 transition-colors">
+                          <tr key={session.id} className="hover:bg-white/[0.03] transition-colors">
                             <td className="px-6 py-4">
                               <div>
-                                <p className="text-sm font-bold text-slate-900">{session.candidateInfo.name}</p>
-                                <p className="text-xs text-slate-500 mt-0.5">
+                                <p className="text-sm font-bold text-white">{session.candidateInfo.name}</p>
+                                <p className="text-[11px] text-white/40 font-light mt-1">
                                   {session.status === 'COMPLETED' && session.transcript && session.transcript.length > 0
                                     ? `Submitted ${formatRelativeTime(new Date(session.transcript[session.transcript.length - 1].timestamp || session.createdAt).getTime())}`
                                     : `Created ${formatRelativeTime(session.createdAt)}`}
                                 </p>
                               </div>
                             </td>
-                            <td className="px-6 py-4 text-sm text-slate-600 font-medium">
+                            <td className="px-6 py-4 text-[13px] text-white/60 font-medium">
                               {session.status === 'COMPLETED' || session.status === 'INTERVIEW_ENDED' || session.status === 'NOT_FINISHED' ? calculateDuration(session.transcript) : '—'}
                             </td>
                             <td className="px-6 py-4">
                               {session.status === 'COMPLETED' && session.report?.overallScore ? (
-                                <div className="flex items-center gap-2">
-                                  <div className="w-16 bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-16 bg-black/40 border border-white/5 h-1.5 rounded-full overflow-hidden">
                                     <div 
-                                      className={`h-full rounded-full ${session.report.overallScore >= 70 ? 'bg-emerald-500' : session.report.overallScore >= 50 ? 'bg-amber-400' : 'bg-red-400'}`} 
+                                      className={`h-full rounded-full shadow-[0_0_10px_currentColor] ${session.report.overallScore >= 70 ? 'bg-primary text-primary' : session.report.overallScore >= 50 ? 'bg-amber-400 text-amber-400' : 'bg-red-400 text-red-400'}`} 
                                       style={{ width: `${session.report.overallScore}%` }}
                                     ></div>
                                   </div>
-                                  <span className="text-xs font-bold text-slate-700">{session.report.overallScore}%</span>
+                                  <span className="text-[11px] font-bold tracking-widest text-white/80">{session.report.overallScore}%</span>
                                 </div>
                               ) : (
-                                <span className="text-slate-400 text-xs italic opacity-80">—</span>
+                                <span className="text-white/20 text-xs italic opacity-80">—</span>
                               )}
                             </td>
                             <td className="px-6 py-4">
                               {session.status === 'COMPLETED' && session.report?.overallRecommendation ? (
-                                <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold border ${getRecommendationColor(session.report.overallRecommendation)}`}>
+                                <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${getRecommendationColor(session.report.overallRecommendation)}`}>
                                   {session.report.overallRecommendation.replace('_', ' ')}
                                 </span>
                               ) : (
-                                <span className="text-slate-400 text-xs italic opacity-80">—</span>
+                                <span className="text-white/20 text-xs italic opacity-80">—</span>
                               )}
                             </td>
                             <td className="px-6 py-4 text-right">
                               {session.status === 'PENDING' ? (
                                 <button 
                                   onClick={() => generateAndCopyLink(session.id)}
-                                  className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-2 rounded-lg transition-colors ml-auto"
+                                  className="inline-flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest text-white border border-white/20 hover:border-primary hover:text-primary bg-black/40 px-3 py-2 rounded-lg transition-colors ml-auto"
                                 >
                                   {copiedId === session.id ? <CheckCircle size={14} /> : <Copy size={14} />}
                                   {copiedId === session.id ? 'Copied' : 'Copy Link'}
@@ -611,28 +598,28 @@ export default function Dashboard() {
                                 <button
                                   onClick={() => handleGenerateReport(session.id)}
                                   disabled={generatingReportId === session.id || session.status === 'GENERATING'}
-                                  className={`inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg transition-colors ml-auto ${
+                                  className={`inline-flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg transition-colors ml-auto border ${
                                     generatingReportId === session.id || session.status === 'GENERATING'
-                                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                      : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                      ? 'bg-white/5 text-white/30 border-white/10 cursor-not-allowed'
+                                      : 'text-primary bg-primary/10 hover:bg-primary/20 border-primary/30 shadow-[0_0_10px_rgba(0,240,255,0.1)]'
                                   }`}
                                 >
                                   {generatingReportId === session.id || session.status === 'GENERATING' ? (
-                                    <><Loader2 size={14} className="animate-spin" /> 生成中...</>
+                                    <><Loader2 size={14} className="animate-spin" /> Analyzing...</>
                                   ) : (
-                                    <><FileText size={14} /> 生成报告</>
+                                    <><FileText size={14} /> Run Analysis</>
                                   )}
                                 </button>
                               ) : session.status === 'COMPLETED' ? (
                                 <Link 
                                   to={`/hr/report/${session.id}`}
-                                  className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 mt-1"
+                                  className="inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-primary hover:text-white transition-colors mt-1"
                                 >
-                                  查看报告
+                                  View Report
                                   <ChevronRight size={14} />
                                 </Link>
                               ) : (
-                                <span className="text-xs text-slate-400 italic">—</span>
+                                <span className="text-[11px] text-white/20 italic">—</span>
                               )}
                             </td>
                           </tr>

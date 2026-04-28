@@ -470,120 +470,142 @@ export default function InterviewPortal() {
   };
 
   if (appState === 'LOADING') {
-    return <div className="min-h-screen flex items-center justify-center">Loading Interview...</div>;
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center font-display relative overflow-hidden">
+        <div className="absolute inset-0 z-0 pointer-events-none opacity-40">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary/20 rounded-full blur-[100px] animate-pulse"></div>
+        </div>
+        <Loader2 size={40} className="animate-spin text-primary relative z-10 mb-4" />
+        <div className="text-white/70 tracking-[0.2em] text-sm uppercase relative z-10">Initializing Aura</div>
+      </div>
+    );
   }
 
   if (appState === 'READY' && session) {
-    // Hardcoded estimated time based on user request
     const estimatedMinutes = 30;
     
     return (
-      <div className="min-h-screen bg-white text-[#1A1A1A] font-[Montserrat] flex flex-col border-t-[6px] border-[#118C33]">
+      <div className="min-h-screen bg-background text-white font-body flex flex-col relative overflow-hidden">
+        {/* Background Effects */}
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full aura-gradient opacity-10 blur-[120px]"></div>
+          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full aura-gradient opacity-10 blur-[120px]"></div>
+        </div>
+
         {/* Header */}
-        <header className="px-8 py-6 border-b-2 border-[#8DC63F] flex justify-between items-center bg-white">
-          <img src="/fuling-logo.png" alt="FULING" className="h-[2.8rem] object-contain" />
-          <div className="text-xs uppercase tracking-[0.05em] font-semibold text-[#555555]">Interview Platform</div>
+        <header className="px-8 py-6 flex justify-between items-center relative z-10">
+          <div className="text-2xl font-bold font-display tracking-tight aura-gradient-text">AURA</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-white/50">Interview Platform</div>
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 flex justify-center items-start py-12 px-8">
-          <div className="w-full max-w-[900px] animate-[fadeIn_0.4s_ease-out]">
+        <main className="flex-1 flex justify-center items-center py-12 px-8 relative z-10">
+          <div className="w-full max-w-[1000px] animate-[fadeIn_0.6s_ease-out]">
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-16 items-center">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-16 lg:gap-24 items-center">
               
               {/* Left Column: Intro */}
-              <div className="space-y-8">
+              <div className="space-y-10">
                 <div>
-                  <h1 className="text-[2.2rem] tracking-wide uppercase font-light text-[#1A1A1A] mb-6 leading-tight after:content-[''] after:block after:w-[100px] after:h-[4px] after:mt-6 after:bg-gradient-to-r after:from-[#118C33] after:via-[#8DC63F] after:to-[#118C33]">
-                    Welcome to your AI Interview
+                  <h1 className="text-4xl md:text-5xl lg:text-6xl tracking-tight font-bold font-display text-white mb-6 leading-[1.1]">
+                    Welcome to your <br />
+                    <span className="aura-gradient-text">Aura Session</span>
                   </h1>
-                  <p className="text-lg text-[#555555] font-normal leading-relaxed">
-                    This is a recorded session where you will answer a series of questions presented by our AI interviewer for the <strong className="text-[#1A1A1A] font-medium">{session.jobRoleContext || 'Developer'}</strong> position. The process is designed to be straightforward and comfortable.
+                  <p className="text-lg text-white/70 leading-relaxed font-light">
+                    You're interviewing for the <strong className="text-white font-medium">{session.jobRoleContext || 'Developer'}</strong> role. This AI-guided session is designed to explore your experience dynamically.
                   </p>
                 </div>
                 
-                <ul className="space-y-4">
-                  <li className="flex items-start gap-4">
-                    <div className="w-6 h-6 rounded-full bg-[#118C33] text-white flex items-center justify-center shrink-0 mt-1">
-                      <Check size={14} strokeWidth={3} />
+                <ul className="space-y-6">
+                  <li className="flex items-start gap-5 group">
+                    <div className="w-8 h-8 rounded-full glass-panel flex items-center justify-center shrink-0 mt-0.5 group-hover:border-primary/50 transition-colors">
+                      <Check size={14} className="text-primary" strokeWidth={3} />
                     </div>
                     <div>
-                      <strong className="text-[#1A1A1A] font-medium block">Pace yourself</strong>
-                      <span className="text-sm text-[#555555]">You will have time to read the question before recording your answer.</span>
+                      <strong className="text-white font-medium block text-lg mb-1">Pace yourself</strong>
+                      <span className="text-sm text-white/60 leading-relaxed block">Take your time to understand each question before responding naturally.</span>
                     </div>
                   </li>
-                  <li className="flex items-start gap-4">
-                    <div className="w-6 h-6 rounded-full bg-[#118C33] text-white flex items-center justify-center shrink-0 mt-1">
-                      <Check size={14} strokeWidth={3} />
+                  <li className="flex items-start gap-5 group">
+                    <div className="w-8 h-8 rounded-full glass-panel flex items-center justify-center shrink-0 mt-0.5 group-hover:border-primary/50 transition-colors">
+                      <Check size={14} className="text-primary" strokeWidth={3} />
                     </div>
                     <div>
-                      <strong className="text-[#1A1A1A] font-medium block">~{estimatedMinutes} Minutes Duration</strong>
-                      <span className="text-sm text-[#555555]">We will cover your background and {session.claims.length} specific experiences.</span>
+                      <strong className="text-white font-medium block text-lg mb-1">~{estimatedMinutes} Minutes</strong>
+                      <span className="text-sm text-white/60 leading-relaxed block">We'll discuss your background and {session.claims.length} specific experiences.</span>
                     </div>
                   </li>
                 </ul>
               </div>
 
               {/* Right Column: System Check Card */}
-              <div className="bg-[#F7F7F7] p-8 rounded border border-[#EAEAEA]">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-light text-[#1A1A1A]">System Check</h3>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[#555555]">Language:</span>
+              <div className="glass-panel p-8 md:p-10 rounded-3xl relative overflow-hidden group">
+                {/* Subtle border top highlight */}
+                <div className="absolute top-0 left-0 right-0 h-[1px] aura-gradient opacity-50"></div>
+                
+                <div className="flex justify-between items-center mb-8">
+                  <h3 className="text-xl font-medium font-display tracking-wide text-white">System Check</h3>
+                  <div className="flex items-center gap-3">
                     <select 
                       value={language} 
                       onChange={(e) => setLanguage(e.target.value as any)}
-                      className="border border-[#EAEAEA] rounded px-2 py-1 text-sm bg-white focus:outline-none focus:border-[#118C33]"
+                      className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary/50 appearance-none cursor-pointer"
                     >
-                      <option value="zh-CN">🇨🇳 中文 (Chinese)</option>
-                      <option value="en-US">🇺🇸 English</option>
+                      <option value="zh-CN" className="bg-background">🇨🇳 中文</option>
+                      <option value="en-US" className="bg-background">🇺🇸 English</option>
                     </select>
                   </div>
                 </div>
                 
-                <div className="space-y-0">
-                  <div className="flex justify-between items-center py-4 border-b border-[#EAEAEA]">
-                    <div className="flex items-center gap-3">
-                      <CameraIcon className="text-[#555555]" size={20} />
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center py-4 border-b border-white/5 group-hover:border-white/10 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/70">
+                        <CameraIcon size={18} />
+                      </div>
                       <div>
-                        <div className="text-[#1A1A1A] font-medium">Camera</div>
-                        <div className="text-sm text-[#555555]">Detected</div>
+                        <div className="text-white font-medium">Camera</div>
+                        <div className="text-xs text-white/50 mt-0.5">Detected</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 text-[#1A1A1A] font-medium">
-                      {cameraCheck === 'idle' && <span className="text-sm font-normal text-gray-400">Pending</span>}
-                      {cameraCheck === 'checking' && <Loader2 size={16} className="animate-spin text-[#8DC63F]" />}
-                      {cameraCheck === 'completed' && <><div className="w-2 h-2 rounded-full bg-[#8DC63F]"></div> Ready</>}
+                    <div className="flex items-center gap-2 text-white/90 text-sm font-medium">
+                      {cameraCheck === 'idle' && <span className="text-white/40 font-normal">Pending</span>}
+                      {cameraCheck === 'checking' && <Loader2 size={16} className="animate-spin text-primary" />}
+                      {cameraCheck === 'completed' && <><div className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_var(--color-primary)]"></div> Ready</>}
                     </div>
                   </div>
                   
-                  <div className="flex justify-between items-center py-4 border-b border-[#EAEAEA]">
-                    <div className="flex items-center gap-3">
-                      <Mic className="text-[#555555]" size={20} />
+                  <div className="flex justify-between items-center py-4 border-b border-white/5 group-hover:border-white/10 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/70">
+                        <Mic size={18} />
+                      </div>
                       <div>
-                        <div className="text-[#1A1A1A] font-medium">Microphone</div>
-                        <div className="text-sm text-[#555555]">Default input</div>
+                        <div className="text-white font-medium">Microphone</div>
+                        <div className="text-xs text-white/50 mt-0.5">Required</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 text-[#1A1A1A] font-medium">
-                      {micCheck === 'idle' && <span className="text-sm font-normal text-gray-400">Pending</span>}
-                      {micCheck === 'checking' && <Loader2 size={16} className="animate-spin text-[#8DC63F]" />}
-                      {micCheck === 'completed' && <><div className="w-2 h-2 rounded-full bg-[#8DC63F]"></div> Ready</>}
+                    <div className="flex items-center gap-2 text-white/90 text-sm font-medium">
+                      {micCheck === 'idle' && <span className="text-white/40 font-normal">Pending</span>}
+                      {micCheck === 'checking' && <Loader2 size={16} className="animate-spin text-primary" />}
+                      {micCheck === 'completed' && <><div className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_var(--color-primary)]"></div> Ready</>}
                     </div>
                   </div>
                   
                   <div className="flex justify-between items-center py-4">
-                    <div className="flex items-center gap-3">
-                      <Wifi className="text-[#555555]" size={20} />
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/70">
+                        <Wifi size={18} />
+                      </div>
                       <div>
-                        <div className="text-[#1A1A1A] font-medium">Connection</div>
-                        <div className="text-sm text-[#555555]">Stable</div>
+                        <div className="text-white font-medium">Network</div>
+                        <div className="text-xs text-white/50 mt-0.5">Stable</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 text-[#1A1A1A] font-medium">
-                      {networkCheck === 'idle' && <span className="text-sm font-normal text-gray-400">Pending</span>}
-                      {networkCheck === 'checking' && <Loader2 size={16} className="animate-spin text-[#8DC63F]" />}
-                      {networkCheck === 'completed' && <><div className="w-2 h-2 rounded-full bg-[#8DC63F]"></div> Ready</>}
+                    <div className="flex items-center gap-2 text-white/90 text-sm font-medium">
+                      {networkCheck === 'idle' && <span className="text-white/40 font-normal">Pending</span>}
+                      {networkCheck === 'checking' && <Loader2 size={16} className="animate-spin text-primary" />}
+                      {networkCheck === 'completed' && <><div className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_var(--color-primary)]"></div> Ready</>}
                     </div>
                   </div>
                 </div>
@@ -592,10 +614,10 @@ export default function InterviewPortal() {
                   <button 
                     onClick={handleSystemCheck}
                     disabled={systemCheck === 'checking'}
-                    className={`w-full mt-8 py-3 px-6 rounded-sm font-semibold text-base uppercase tracking-wider flex items-center justify-center gap-2 transition-colors border-none ${
+                    className={`w-full mt-8 py-4 rounded-xl font-medium text-sm tracking-widest uppercase flex items-center justify-center gap-3 transition-all duration-300 border ${
                         systemCheck === 'checking' 
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                          : 'bg-[#118C33] hover:bg-[#0E7329] text-white cursor-pointer'
+                          ? 'bg-white/5 border-white/10 text-white/50 cursor-not-allowed' 
+                          : 'bg-white/10 hover:bg-white/15 border-white/20 text-white cursor-pointer hover:border-primary/50'
                     }`}
                   >
                     {systemCheck === 'checking' ? (
@@ -613,21 +635,24 @@ export default function InterviewPortal() {
                 ) : (
                   <>
                     {systemCheckFailed && (
-                      <div className="w-full mb-4 p-3 bg-red-50 border border-red-200 rounded-sm text-red-700 text-sm font-medium">
-                        Microphone access is required for the interview. Please grant permission and try again.
+                      <div className="w-full mt-6 mb-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm font-medium text-center">
+                        Microphone access is required.
                       </div>
                     )}
                     <button 
                       onClick={handleStartInterview}
                       disabled={systemCheckFailed}
-                      className={`w-full mt-4 py-3 px-6 rounded-sm font-semibold text-base uppercase tracking-wider flex items-center justify-center gap-2 transition-colors border-none animate-[fadeIn_0.3s_ease-out] ${
+                      className={`w-full mt-8 py-4 rounded-xl font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-3 transition-all duration-500 relative overflow-hidden group ${
                         systemCheckFailed
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                          : 'bg-[#118C33] hover:bg-[#0E7329] text-white cursor-pointer'
+                          ? 'bg-white/5 border border-white/10 text-white/50 cursor-not-allowed'
+                          : 'bg-white text-background cursor-pointer hover:shadow-[0_0_30px_rgba(0,240,255,0.3)]'
                       }`}
                     >
-                      Begin Session
-                      <ArrowRight size={18} />
+                      {!systemCheckFailed && (
+                        <div className="absolute inset-0 aura-gradient opacity-0 group-hover:opacity-10 transition-opacity duration-500"></div>
+                      )}
+                      <span className="relative z-10">Begin Session</span>
+                      <ArrowRight size={18} className="relative z-10 group-hover:translate-x-1 transition-transform" />
                     </button>
                   </>
                 )}

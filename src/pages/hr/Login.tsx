@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Network, User, Lock, Eye, ArrowRight, ShieldCheck, Globe, HelpCircle, EyeOff } from 'lucide-react';
+import { User, Lock, Eye, EyeOff, ShieldCheck, ArrowRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 export default function Login() {
@@ -44,52 +44,52 @@ export default function Login() {
   };
 
   return (
-    <div className="bg-background text-on-background min-h-screen flex flex-col font-sans">
+    <div className="bg-background text-white min-h-screen flex flex-col font-body relative overflow-hidden">
+      
+      {/* Background Effects */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full aura-gradient opacity-[0.05] blur-[150px]"></div>
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full aura-gradient opacity-[0.05] blur-[150px]"></div>
+      </div>
+
       {/* Shared TopNavBar */}
-      <nav className="fixed top-0 w-full z-50 flex justify-between items-center px-6 py-4 bg-white/40 dark:bg-black/20 backdrop-blur-sm">
-        <div className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Fuling USA</div>
+      <nav className="fixed top-0 w-full z-50 flex justify-between items-center px-8 py-6 bg-background/50 backdrop-blur-md border-b border-white/5">
+        <div className="text-2xl font-bold tracking-tight font-display aura-gradient-text">AURA</div>
         <div className="flex items-center gap-6">
-          <div className="hidden md:flex gap-8 font-manrope text-[0.875rem] tracking-tight font-medium">
-            <span className="text-slate-500 dark:text-slate-400 cursor-pointer">Portal Home</span>
-            <span className="text-slate-500 dark:text-slate-400 cursor-pointer">Employee Guidelines</span>
-          </div>
-          <div className="flex gap-4">
-            <Globe className="text-green-500 dark:text-green-400 cursor-pointer w-6 h-6" />
-            <HelpCircle className="text-green-500 dark:text-green-400 cursor-pointer w-6 h-6" />
+          <div className="hidden md:flex gap-8 text-[13px] tracking-wide font-medium">
+            <span className="text-white/50 hover:text-white cursor-pointer transition-colors">Portal Home</span>
+            <span className="text-white/50 hover:text-white cursor-pointer transition-colors">Employee Guidelines</span>
           </div>
         </div>
       </nav>
 
-      <main className="flex-grow flex items-center justify-center px-4 relative overflow-hidden">
-        {/* Atmospheric Glow Background */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[120px] pointer-events-none"></div>
-
+      <main className="flex-grow flex items-center justify-center px-4 relative z-10 pt-20">
         {/* Login Container */}
-        <div className="w-full max-w-[440px] z-10 mt-16">
+        <div className="w-full max-w-[420px] animate-[fadeIn_0.6s_ease-out]">
+          
           {/* Branding Header */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center p-4 bg-surface-container-lowest rounded-xl shadow-sm mb-4">
-              <Network className="text-primary w-9 h-9" />
-            </div>
-            <h1 className="font-headline text-2xl font-extrabold tracking-tight text-on-surface">Fuling USA</h1>
-            <p className="font-label text-[10px] font-bold uppercase tracking-wider text-outline mt-1">Human Resources Information System</p>
+          <div className="text-center mb-10">
+            <h1 className="font-display text-4xl font-bold tracking-tight text-white mb-2">Command Center</h1>
+            <p className="font-body text-[11px] font-bold uppercase tracking-[0.2em] text-primary/70">Human Resources Gateway</p>
           </div>
 
           {/* Login Card */}
-          <div className="bg-surface-container-lowest rounded-xl shadow-2xl p-8 md:p-10 border border-surface-container">
+          <div className="glass-panel rounded-2xl p-8 md:p-10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-[1px] aura-gradient opacity-50"></div>
+            
             <form className="space-y-6" onSubmit={handleLogin}>
               <div className="space-y-2">
-                <label className="font-label text-[10px] font-bold uppercase tracking-wider text-on-surface-variant block ml-1">
-                  Employee ID / Email
+                <label className="text-[10px] font-bold uppercase tracking-widest text-white/50 block ml-1">
+                  System ID / Email
                 </label>
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-outline w-5 h-5" />
+                <div className="relative group">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-5 h-5 group-focus-within:text-primary transition-colors" />
                   <input
                     required
                     value={employeeId}
                     onChange={(e) => { setEmployeeId(e.target.value); setError(''); }}
-                    className="w-full bg-surface-container-low border-none rounded-lg py-3.5 pl-12 pr-4 text-[0.875rem] focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all outline-none text-on-surface placeholder:text-outline/50"
-                    placeholder="e.g. name@fuling.com"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 pr-4 text-[14px] focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none text-white placeholder:text-white/20 font-light"
+                    placeholder="e.g. hr@aura.dev"
                     type="email"
                   />
                 </div>
@@ -97,25 +97,25 @@ export default function Login() {
 
               <div className="space-y-2">
                 <div className="flex justify-between items-center px-1">
-                  <label className="font-label text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
-                    Password
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/50">
+                    Passcode
                   </label>
-                  <a className="font-label text-[10px] font-bold uppercase tracking-wider text-primary hover:underline transition-all" href="#">
-                    Forgot Password?
+                  <a className="text-[10px] font-bold uppercase tracking-wider text-primary/80 hover:text-primary transition-colors" href="#">
+                    Recover Access
                   </a>
                 </div>
-                <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-outline w-5 h-5" />
+                <div className="relative group">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-5 h-5 group-focus-within:text-primary transition-colors" />
                   <input
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-surface-container-low border-none rounded-lg py-3.5 pl-12 pr-12 text-[0.875rem] focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all outline-none text-on-surface placeholder:text-outline/50"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 pr-12 text-[14px] focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none text-white placeholder:text-white/20 font-light"
                     placeholder="••••••••"
                     type={showPassword ? 'text' : 'password'}
                   />
                   <div 
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-outline cursor-pointer hover:text-primary transition-colors flex items-center"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 cursor-pointer hover:text-primary transition-colors flex items-center"
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
@@ -124,46 +124,40 @@ export default function Login() {
               </div>
 
               {error && (
-                <p className="text-red-500 text-xs font-bold px-1">{error}</p>
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                  <p className="text-red-400 text-xs font-medium text-center">{error}</p>
+                </div>
               )}
 
-              <div className="pt-2">
+              <div className="pt-4">
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full bg-primary hover:bg-secondary text-on-primary font-bold py-4 rounded-full shadow-[0_0_15px_rgba(17,212,17,0.3)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                  className="w-full h-14 aura-gradient text-background font-bold text-[13px] tracking-widest uppercase rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.3)]"
                 >
-                  <span>{isSubmitting ? 'VERIFYING...' : 'LOGIN'}</span>
-                  {!isSubmitting && <ArrowRight className="w-5 h-5" />}
+                  <span>{isSubmitting ? 'Authenticating...' : 'Initialize Session'}</span>
+                  {!isSubmitting && <ArrowRight className="w-4 h-4" />}
                 </button>
               </div>
             </form>
-
-            <div className="mt-8 pt-6 border-t border-surface-container text-center">
-              <p className="font-body text-[0.875rem] text-on-surface-variant">
-                Don't have access yet?
-                <a className="text-primary font-bold hover:underline transition-all ml-1" href="#">Request Access</a>
-              </p>
-            </div>
           </div>
 
           {/* Security Notice */}
-          <div className="mt-6 flex items-center justify-center gap-2 text-outline">
+          <div className="mt-8 flex items-center justify-center gap-2 text-white/30">
             <ShieldCheck className="w-4 h-4" />
-            <span className="font-label text-[8px] uppercase tracking-wider">End-to-End Encrypted Session</span>
+            <span className="text-[10px] uppercase tracking-[0.2em]">AES-256 Encrypted Connection</span>
           </div>
         </div>
       </main>
 
       {/* Shared Footer Component */}
-      <footer className="fixed bottom-0 w-full flex justify-between items-center px-8 py-6 bg-transparent">
-        <div className="font-manrope text-[8px] uppercase tracking-wider font-medium text-slate-400">
-          © 2024 Fuling USA. Secure HR Portal.
+      <footer className="relative z-10 flex justify-between items-center px-8 py-6">
+        <div className="text-[10px] uppercase tracking-[0.1em] text-white/30">
+          © {new Date().getFullYear()} AURA SYSTEM. SECURE TERMINAL.
         </div>
-        <div className="flex gap-6 font-manrope text-[8px] uppercase tracking-wider font-medium text-slate-400">
-          <a className="hover:text-green-500 transition-colors opacity-80 hover:opacity-100" href="#">Privacy Policy</a>
-          <a className="hover:text-green-500 transition-colors opacity-80 hover:opacity-100" href="#">Terms of Service</a>
-          <a className="hover:text-green-500 transition-colors opacity-80 hover:opacity-100" href="#">Support</a>
+        <div className="flex gap-6 text-[10px] uppercase tracking-[0.1em] text-white/30">
+          <a className="hover:text-primary transition-colors" href="#">Security Protocol</a>
+          <a className="hover:text-primary transition-colors" href="#">Terms</a>
         </div>
       </footer>
     </div>
