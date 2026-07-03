@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle, RotateCw, VolumeX } from 'lucide-react';
+import type { AsrError } from '../voice/useASR';
 
 interface AudioPlaybackStateProps {
   isEvaluating: boolean;
@@ -12,36 +13,125 @@ interface AudioPlaybackStateProps {
   isSpeechDetected: boolean;
   transcript: string;
   interimTranscript: string;
+  /** Typed ASR error, null when healthy. When set, an inline retry banner shows. */
+  asrError?: AsrError | null;
+  /** Clears asrError and restarts recognition. */
+  onRetryAsr?: () => void;
+  /** Playback/TTS failure. When set (with no audio), the read-the-question hint shows. */
+  playbackError?: string | null;
 }
 
-export function AudioPlaybackState({
-  isEvaluating,
-  isAiSpeaking,
-  isPreparingAudio,
-  isListening,
-  currentQuestion,
-  silenceLevel,
-  isSpeechDetected,
-  transcript,
-  interimTranscript
-}: AudioPlaybackStateProps) {
+type StatusTone = 'ai' | 'user';
+interface Status {
+  text: string;
+  tone: StatusTone;
+  /** Turn handoffs (AI starts thinking/speaking) are announced assertively. */
+  assertive: boolean;
+  spinner: boolean;
+}
+
+// Single status line resolved by strict state priority so AI-turn and
+// user-turn states can never render simultaneously or be confused.
+function resolveStatus(p: AudioPlaybackStateProps): Status | null {
+  if (p.isEvaluating) return { text: 'AI 正在思考…', tone: 'ai', assertive: true, spinner: true };
+  if (p.isPreparingAudio) return { text: '准备回复…', tone: 'ai', assertive: false, spinner: true };
+  if (p.isAiSpeaking) return { text: 'AI 正在说话…', tone: 'ai', assertive: true, spinner: false };
+  if (p.isSpeechDetected) return { text: '我在听你说…', tone: 'user', assertive: false, spinner: false };
+  if (p.isListening) return { text: '请开始回答', tone: 'user', assertive: false, spinner: false };
+  return null;
+}
+
+export function AudioPlaybackState(props: AudioPlaybackStateProps) {
+  const {
+    isEvaluating,
+    isAiSpeaking,
+    isPreparingAudio,
+    isListening,
+    currentQuestion,
+    silenceLevel,
+    isSpeechDetected,
+    transcript,
+    interimTranscript,
+    asrError,
+    onRetryAsr,
+    playbackError
+  } = props;
+
+  const status = resolveStatus(props);
+  // AI states get the purple aura treatment; user states get primary green,
+  // so the wave color alone tells you whose turn it is.
+  const aiActive = isEvaluating || isPreparingAudio || isAiSpeaking;
 
   const waveHeights = [
-    'h-4', 'h-8', 'h-16', 'h-24', 'h-40', 'h-56', 'h-64', 'h-48', 
+    'h-4', 'h-8', 'h-16', 'h-24', 'h-40', 'h-56', 'h-64', 'h-48',
     'h-64', 'h-56', 'h-40', 'h-24', 'h-16', 'h-8', 'h-4'
   ];
-  
-  const baseOpacities = [
+
+  // Two distinct color ramps: purple (AI) vs green (user).
+  const userOpacities = [
     'bg-primary/20', 'bg-primary/30', 'bg-primary/40', 'bg-primary/60',
     'bg-primary', 'bg-primary shadow-[0_0_20px_rgba(17,212,17,0.4)]', 'bg-primary shadow-[0_0_25px_rgba(17,212,17,0.5)]',
     'bg-primary', 'bg-primary shadow-[0_0_25px_rgba(17,212,17,0.5)]', 'bg-primary shadow-[0_0_20px_rgba(17,212,17,0.4)]',
     'bg-primary', 'bg-primary/60', 'bg-primary/40', 'bg-primary/30', 'bg-primary/20'
   ];
+  const aiOpacities = [
+    'bg-[#b026ff]/20', 'bg-[#b026ff]/30', 'bg-[#b026ff]/40', 'bg-[#b026ff]/60',
+    'bg-[#b026ff]', 'bg-[#b026ff] shadow-[0_0_20px_rgba(176,38,255,0.4)]', 'bg-[#b026ff] shadow-[0_0_25px_rgba(176,38,255,0.5)]',
+    'bg-[#b026ff]', 'bg-[#b026ff] shadow-[0_0_25px_rgba(176,38,255,0.5)]', 'bg-[#b026ff] shadow-[0_0_20px_rgba(176,38,255,0.4)]',
+    'bg-[#b026ff]', 'bg-[#b026ff]/60', 'bg-[#b026ff]/40', 'bg-[#b026ff]/30', 'bg-[#b026ff]/20'
+  ];
+  const barColors = aiActive ? aiOpacities : userOpacities;
+
+  // Audio is unavailable if either the mic/ASR or the TTS playback failed.
+  const audioUnavailable = !!asrError || !!playbackError;
 
   return (
     <div className="w-full max-w-2xl flex flex-col items-center justify-center relative min-h-[160px]">
-       
-       <AnimatePresence>
+
+      {/* Persistent AI caption — the question stays visible as readable text. */}
+      {currentQuestion && (
+        <div className="w-full mb-4 px-2">
+          <div className="mx-auto max-w-xl text-center">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">AI</span>
+            <p className="text-base md:text-lg font-medium leading-relaxed text-white/90">
+              {currentQuestion}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Audio-unavailable hint: question is shown as text above, so guide the user to read it. */}
+      {audioUnavailable && currentQuestion && (
+        <div className="w-full mb-3 flex justify-center">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium">
+            <VolumeX className="w-3.5 h-3.5" />
+            音频不可用 — 请阅读上方问题
+          </div>
+        </div>
+      )}
+
+      {/* Inline ASR error banner with retry. */}
+      {asrError && (
+        <div className="w-full mb-3 flex justify-center">
+          <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm max-w-xl">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1">{asrError.message}</span>
+            {onRetryAsr && (
+              <button
+                type="button"
+                onClick={onRetryAsr}
+                aria-label="重试麦克风"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500 hover:text-white text-red-200 text-xs font-bold uppercase tracking-wider transition-colors flex-shrink-0"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+                重试
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <AnimatePresence>
         {isListening && silenceLevel >= 1 && !isSpeechDetected && !transcript.trim() && !interimTranscript.trim() && !isEvaluating && !isPreparingAudio && !isAiSpeaking && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
@@ -59,7 +149,7 @@ export function AudioPlaybackState({
         {waveHeights.map((h, i) => {
            let animateConfig: any = { scaleY: 0.1 };
            let transitionConfig: any = { duration: 0.5 };
-           
+
            if (isEvaluating) {
               animateConfig = { scaleY: [0.2, 0.5, 0.2] };
               transitionConfig = { duration: 1.5, repeat: Infinity, delay: i * 0.1 };
@@ -75,41 +165,41 @@ export function AudioPlaybackState({
            }
 
            return (
-             <motion.div 
+             <motion.div
                key={i}
                initial={{ scaleY: 0.1 }}
                animate={animateConfig}
                transition={transitionConfig}
-               className={`${h} w-1.5 ${baseOpacities[i]} rounded-full origin-center`}
+               className={`${h} w-1.5 ${barColors[i]} rounded-full origin-center`}
              />
            );
         })}
       </div>
 
-      <AnimatePresence mode="wait">
-         {isEvaluating && (
-           <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute bottom-0 text-sm font-bold uppercase tracking-widest text-primary flex flex-col items-center gap-2"
-           >
-             <Loader2 className="animate-spin w-5 h-5 mx-auto" />
-             AI is evaluating...
-           </motion.div>
-         )}
-         {isPreparingAudio && (
-           <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute bottom-0 text-xs font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2"
-           >
-             <Loader2 className="animate-spin w-4 h-4" />
-             Preparing response...
-           </motion.div>
-         )}
-      </AnimatePresence>
+      {/* Single status line, driven by state priority, in an aria-live region. */}
+      <div
+        className="absolute bottom-0 min-h-[1.5rem] flex items-center justify-center"
+        aria-live={status?.assertive ? 'assertive' : 'polite'}
+        aria-atomic="true"
+        role="status"
+      >
+        <AnimatePresence mode="wait">
+          {status && (
+            <motion.div
+              key={status.text}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className={`text-sm font-bold uppercase tracking-widest flex items-center gap-2 ${
+                status.tone === 'ai' ? 'text-[#b026ff]' : 'text-primary'
+              }`}
+            >
+              {status.spinner && <Loader2 className="animate-spin w-4 h-4" />}
+              {status.text}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
