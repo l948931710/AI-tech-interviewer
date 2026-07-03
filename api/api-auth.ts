@@ -44,8 +44,9 @@ export async function verifyAuth(req: Request): Promise<
   const interviewToken = req.headers.get('X-Interview-Token');
   const sessionId = req.headers.get('X-Session-Id');
 
-  // 0. Local Dev Bypass (Never strictly enforce if using entirely local JSON DB)
-  if (sessionId && process.env.VITE_USE_LOCAL_DB === 'true') {
+  // 0. Local Dev Bypass (dev-only; disabled in production). Never strictly enforce if using entirely local JSON DB.
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+  if (sessionId && process.env.VITE_USE_LOCAL_DB === 'true' && !isProduction) {
     return { user: { id: `candidate-${sessionId}` } };
   }
 

@@ -77,7 +77,7 @@ export default async function handler(req: Request) {
 
   } catch (err: any) {
     console.error("[Session Reaper] Error cleaning up sessions:", err);
-    return new Response(JSON.stringify({ error: err.message || 'Internal Server Error' }), { 
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
       status: 500, 
       headers: { 'Content-Type': 'application/json' } 
     });
