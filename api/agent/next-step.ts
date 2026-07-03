@@ -35,6 +35,13 @@ export default async function handler(req: Request, ctx: any) {
   try {
     const { sessionId, answer, question, questionId, requestId, language = 'zh-CN' } = await req.json();
 
+    if (typeof sessionId !== 'string' || !sessionId) {
+      return new Response(JSON.stringify({ error: "Missing or invalid sessionId" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    }
+    if (typeof answer !== 'string') {
+      return new Response(JSON.stringify({ error: "Missing or invalid answer" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    }
+
     if (sessionId !== auth.user.id.replace('candidate-', '')) {
       return new Response(JSON.stringify({ error: "Context mismatch" }), { status: 403 });
     }

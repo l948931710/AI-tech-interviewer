@@ -86,18 +86,18 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
     text += `Summary:\n${report.summary}\n\n`;
     
     text += `Strongest Areas:\n`;
-    report.strongestAreas.forEach(a => text += `- ${a}\n`);
-    
-    if (report.riskFlags.length > 0) {
+    (report.strongestAreas ?? []).forEach(a => text += `- ${a}\n`);
+
+    if ((report.riskFlags ?? []).length > 0) {
       text += `\nRisk Flags:\n`;
-      report.riskFlags.forEach(r => text += `- ${r}\n`);
+      (report.riskFlags ?? []).forEach(r => text += `- ${r}\n`);
     }
-    
+
     text += `\nClaim Evaluations:\n`;
-    report.claimEvaluations.forEach(c => {
-      text += `\n[${c.verificationStatus.toUpperCase()}] ${c.claimText}\n`;
-      text += `Strengths: ${c.strengths.join(', ')}\n`;
-      text += `Weaknesses: ${c.weaknesses.join(', ')}\n`;
+    (report.claimEvaluations ?? []).forEach(c => {
+      text += `\n[${c.verificationStatus?.toUpperCase() ?? 'UNKNOWN'}] ${c.claimText}\n`;
+      text += `Strengths: ${(c.strengths ?? []).join(', ')}\n`;
+      text += `Weaknesses: ${(c.weaknesses ?? []).join(', ')}\n`;
     });
 
     return text;
@@ -168,8 +168,20 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
     }
   };
 
+  if (!report) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 text-center">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <AlertTriangle className="text-amber-500 mx-auto mb-4" size={40} />
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">报告数据不可用</h2>
+          <p className="text-gray-600">Report data is unavailable.</p>
+        </div>
+      </div>
+    );
+  }
+
   // Calculate average scores across all evaluated claims
-  const avgScores = report.claimEvaluations.reduce((acc, evaluation) => {
+  const avgScores = (report.claimEvaluations ?? []).reduce((acc, evaluation) => {
     if (evaluation.scores) {
       acc.relevance += evaluation.scores.relevance;
       acc.specificity += evaluation.scores.specificity;
@@ -340,7 +352,7 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
                 <Target className="text-indigo-500" />
                 Claim Evaluations
               </h2>
-              {report.claimEvaluations.map((claimEval, idx) => (
+              {(report.claimEvaluations ?? []).map((claimEval, idx) => (
                 <div key={idx} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                   <div className="p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-start gap-4">
                     <div>
@@ -390,7 +402,7 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
                           <CheckCircle size={16} className="text-emerald-500" /> Strengths
                         </h4>
                         <ul className="space-y-1.5">
-                          {claimEval.strengths.map((s, i) => (
+                          {(claimEval.strengths ?? []).map((s, i) => (
                             <li key={i} className="text-sm text-gray-600 flex items-start gap-1.5">
                               <span className="text-emerald-500 mt-0.5">•</span> <span>{s}</span>
                             </li>
@@ -403,7 +415,7 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
                             <AlertTriangle size={16} className="text-amber-500" /> Weaknesses
                           </h4>
                           <ul className="space-y-1.5">
-                            {claimEval.weaknesses.map((w, i) => (
+                            {(claimEval.weaknesses ?? []).map((w, i) => (
                               <li key={i} className="text-sm text-gray-600 flex items-start gap-1.5">
                                 <span className="text-amber-500 mt-0.5">•</span> <span>{w}</span>
                               </li>
@@ -432,10 +444,10 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
                       <details className="group">
                         <summary className="text-sm font-medium text-indigo-600 cursor-pointer select-none flex items-center gap-1">
                           <ChevronRight size={16} className="group-open:rotate-90 transition-transform" />
-                          View Supporting Transcript ({claimEval.turnEvaluations.length} turns)
+                          View Supporting Transcript ({(claimEval.turnEvaluations ?? []).length} turns)
                         </summary>
                         <div className="mt-4 space-y-4 pl-5 border-l-2 border-indigo-100">
-                          {claimEval.turnEvaluations.map((turn, tIdx) => (
+                          {(claimEval.turnEvaluations ?? []).map((turn, tIdx) => (
                             <div key={tIdx} className="space-y-2">
                               <div className="flex gap-2">
                                 <span className="text-xs font-bold text-gray-400 mt-0.5">Q:</span>
@@ -469,7 +481,7 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
                 Strongest Areas
               </h3>
               <ul className="space-y-3">
-                {report.strongestAreas.map((area, i) => (
+                {(report.strongestAreas ?? []).map((area, i) => (
                   <li key={i} className="flex items-start gap-2 text-gray-700 text-sm">
                     <ChevronRight size={16} className="text-emerald-500 mt-0.5 shrink-0" />
                     <span>{area}</span>
@@ -483,9 +495,9 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
                 <AlertTriangle className="text-amber-500" size={20} />
                 Risk Flags
               </h3>
-              {report.riskFlags.length > 0 ? (
+              {(report.riskFlags ?? []).length > 0 ? (
                 <ul className="space-y-3">
-                  {report.riskFlags.map((risk, i) => (
+                  {(report.riskFlags ?? []).map((risk, i) => (
                     <li key={i} className="flex items-start gap-2 text-gray-700 text-sm">
                       <ChevronRight size={16} className="text-amber-500 mt-0.5 shrink-0" />
                       <span>{risk}</span>
@@ -500,7 +512,7 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Suggested Next Round Focus</h3>
               <ul className="space-y-3">
-                {report.suggestedNextRoundFocus.map((focus, i) => (
+                {(report.suggestedNextRoundFocus ?? []).map((focus, i) => (
                   <li key={i} className="flex items-start gap-2 text-gray-700 text-sm">
                     <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-2 shrink-0" />
                     <span>{focus}</span>
