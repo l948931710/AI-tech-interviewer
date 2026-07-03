@@ -3,8 +3,8 @@ import { InterviewReport, CandidateInfo, StructuredInterviewTurn } from '../agen
 import { CheckCircle, AlertTriangle, Target, Award, ChevronRight, Send, Loader2, Download } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { motion } from 'motion/react';
-import emailjs from '@emailjs/browser';
 import { useAudio, generateTTS } from '../voice';
+import { supabase } from '../lib/supabase';
 
 interface ReportScreenProps {
   report: InterviewReport;
@@ -133,36 +133,45 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
     e.preventDefault();
     if (!emailTo) return;
     
-    // Check for ENV vars
-    const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
-    const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
-    const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
-    
-    if (!serviceId || !templateId || !publicKey) {
-      alert("EmailJS is not configured. Please add VITE_EMAILJS_SERVICE_ID, VITE_EMAILJS_TEMPLATE_ID, and VITE_EMAILJS_PUBLIC_KEY to your .env.local file.");
-      return;
-    }
-
     setIsSending(true);
     setSendStatus('IDLE');
-    
+
     try {
       const messageBody = generateReportText();
 
-      const templateParams = {
-        to_email: emailTo,
-        candidate_name: candidateInfo.name,
-        message: messageBody,
-      };
+      // L1 fix: send through the authenticated backend proxy so EmailJS
+      // credentials stay server-side (out of the client bundle).
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
 
-      await emailjs.send(serviceId, templateId, templateParams, publicKey);
+      const res = await fetch('/api/send-report-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          toEmail: emailTo,
+          candidateName: candidateInfo.name,
+          message: messageBody,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+
       setSendStatus('SUCCESS');
       setEmailTo('');
       setTimeout(() => setSendStatus('IDLE'), 3000);
     } catch (err: any) {
       console.error("Failed to send email", err);
       setSendStatus('ERROR');
-      alert(`Failed to send email: ${err.text || err.message || 'Unknown error'}`);
+      alert(`Failed to send email: ${err.message || 'Unknown error'}`);
     } finally {
       setIsSending(false);
     }

@@ -21,28 +21,41 @@ export function useAudio(language: 'zh-CN' | 'en-US' = 'zh-CN') {
 export function useCamera() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasVideo, setHasVideo] = useState(false);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    let stream: MediaStream | null = null;
-    
+    let cancelled = false;
+
     async function setupCamera() {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        streamRef.current = stream;
+        if (cancelled) {
+          // Unmounted before getUserMedia resolved: stop the just-obtained
+          // stream and do not touch videoRef/state on an unmounted component.
+          stream.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+          return;
+        }
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          setHasVideo(true);
         }
+        setHasVideo(true);
       } catch (err) {
         console.error("Error accessing camera:", err);
-        setHasVideo(false);
+        if (!cancelled) {
+          setHasVideo(false);
+        }
       }
     }
 
     setupCamera();
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      cancelled = true;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
       }
     };
   }, []);

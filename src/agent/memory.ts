@@ -156,12 +156,12 @@ export class InterviewMemory {
         const turn = transcript[i];
         
         let turnType: TurnType = 'main';
-        if (['intro', 'main', 'follow_up', 'repeat', 'clarify', 'transition'].includes(turn.turnType)) {
+        if (turn.turnType && ['intro', 'main', 'follow_up', 'repeat', 'clarify', 'transition'].includes(turn.turnType)) {
            turnType = turn.turnType as TurnType;
         }
 
         if (turnType === 'intro') {
-           this.initializeIntroPhase(turn.question, turn.answer, turn.questionId, turn.timestamp);
+           this.initializeIntroPhase(turn.question, turn.answer, turn.questionId || '', turn.timestamp);
            const nextTurn = transcript[i + 1];
            if (nextTurn && nextTurn.turnType !== 'intro' && this.claims.length > 0 && this.claimStates.length === 0) {
                // Ensure at least one claim is advanced to if we exit intro in transcript
@@ -182,7 +182,7 @@ export class InterviewMemory {
              }
            }
            
-           this.addTurnToCurrentClaim(turn.question, turn.answer, turnType, turn.questionId, turn.timestamp);
+           this.addTurnToCurrentClaim(turn.question, turn.answer, turnType, turn.questionId || '', turn.timestamp);
            
            // We now trust explicit state syncing from the server over heuristics
            // Fallback exists purely for backwards compatibility with legacy rows

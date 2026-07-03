@@ -30,43 +30,58 @@ export async function* generateTTSStream(text: string, segmentIndex?: number): A
     throw new Error(`TTS Stream Error: ${response.status} - ${errorBody}`);
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw new Error('TTS Stream Error: response body is null');
+  }
+
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  // Always release the reader — if the consumer stops early (barge-in /
+  // stopAudio), the generator's return()/throw() runs finally, cancelling
+  // the reader so the SSE connection to /api/tts-stream isn't left open
+  // until the server times out.
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
 
-    // Parse SSE events from the buffer (format: "data: ...\n\n")
-    const events = buffer.split('\n\n');
-    // Keep the last partial event in the buffer
-    buffer = events.pop() || '';
+      // Parse SSE events from the buffer (format: "data: ...\n\n")
+      const events = buffer.split('\n\n');
+      // Keep the last partial event in the buffer
+      buffer = events.pop() || '';
 
-    for (const event of events) {
-      const line = event.trim();
-      if (!line.startsWith('data: ')) continue;
+      for (const event of events) {
+        const line = event.trim();
+        if (!line.startsWith('data: ')) continue;
 
-      const payload = line.slice(6); // Remove "data: " prefix
-      if (payload === '[DONE]') return;
+        const payload = line.slice(6); // Remove "data: " prefix
+        if (payload === '[DONE]') return;
 
-      try {
-        const parsed = JSON.parse(payload);
-        if (parsed.error) {
-          throw new Error(parsed.error);
+        try {
+          const parsed = JSON.parse(payload);
+          if (parsed.error) {
+            throw new Error(parsed.error);
+          }
+          if (parsed.audioData) {
+            yield parsed.audioData;
+          }
+        } catch (e: any) {
+          if (e.message && !e.message.includes('JSON')) {
+            throw e; // Re-throw non-parse errors (e.g. server errors)
+          }
+          // Skip malformed SSE lines
         }
-        if (parsed.audioData) {
-          yield parsed.audioData;
-        }
-      } catch (e: any) {
-        if (e.message && !e.message.includes('JSON')) {
-          throw e; // Re-throw non-parse errors (e.g. server errors)
-        }
-        // Skip malformed SSE lines
       }
     }
+  } finally {
+    try {
+      reader.cancel();
+    } catch {}
+    reader.releaseLock();
   }
 }
 

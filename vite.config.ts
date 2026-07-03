@@ -138,6 +138,11 @@ export default defineConfig(({mode}) => {
           server.middlewares.use('/api/agent/load-session', (req, res) => {
             proxyToHandler(req, res, '/api/agent/load-session.ts');
           });
+
+          // Route: /api/send-report-email (server-side EmailJS proxy)
+          server.middlewares.use('/api/send-report-email', (req, res) => {
+            proxyToHandler(req, res, '/api/send-report-email.ts');
+          });
         }
       }
     ],
