@@ -34,24 +34,12 @@ export const db = {
   getSession: (id: string) => 
     USE_LOCAL ? dbLocal.getSession(id) : dbSupabase.getSession(id),
 
-  listSessions: () => 
+  listSessions: () =>
     USE_LOCAL ? dbLocal.listSessions() : dbSupabase.listSessions(),
 
-  startSession: (id: string) => 
-    USE_LOCAL ? dbLocal.startSession(id) : dbSupabase.startSession(id),
-
-  updateTranscript: (id: string, transcript: StructuredInterviewTurn[]) => 
-    USE_LOCAL ? dbLocal.updateTranscript(id, transcript) : dbSupabase.updateTranscript(id, transcript),
-
-  completeSession: (id: string, report: InterviewReport) => 
+  completeSession: (id: string, report: InterviewReport) =>
     USE_LOCAL ? dbLocal.completeSession(id, report) : dbSupabase.completeSession(id, report),
 
-  markNotFinished: (id: string) =>
-    USE_LOCAL ? dbLocal.markNotFinished(id) : dbSupabase.markNotFinished(id),
-
-  markInterviewEnded: (id: string) =>
-    USE_LOCAL ? dbLocal.markInterviewEnded(id) : dbSupabase.markInterviewEnded(id),
-
-  deleteSession: (id: string) => 
+  deleteSession: (id: string) =>
     USE_LOCAL ? dbLocal.deleteSession(id) : dbSupabase.deleteSession(id)
 };

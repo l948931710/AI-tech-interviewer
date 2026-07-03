@@ -64,6 +64,25 @@ export function useASR(language: 'zh-CN' | 'en-US' = 'zh-CN') {
         }
       };
     }
+
+    const recognition = recognitionRef.current;
+    return () => {
+      if (recognition) {
+        // Prevent onend from auto-restarting recognition after unmount/re-run.
+        isIntentionalStopRef.current = true;
+        // Detach handlers so no post-unmount callbacks fire setState.
+        recognition.onend = null;
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onspeechstart = null;
+        recognition.onspeechend = null;
+        try {
+          recognition.stop();
+        } catch (e) {
+          // Ignore: recognition may already be stopped or never started.
+        }
+      }
+    };
   }, [language]);
 
   const startListening = useCallback(() => {

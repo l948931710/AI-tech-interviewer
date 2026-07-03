@@ -87,6 +87,28 @@ Nice-to-Have Points: ${JSON.stringify(firstClaim.nice_to_have || [])}
 Evidence Hints: ${JSON.stringify(firstClaim.evidence_hints || [])}
 Rationale for probing: ${JSON.stringify(firstClaim.rationale)}`;
 
+    // ATOMIC START CLAIM: set started_at as a single-winner idempotency token
+    // BEFORE the expensive LLM call, so a double-click / retry cannot double-bill.
+    const { data: startClaim } = await supabaseAdmin
+      .from('interview_sessions')
+      .update({ started_at: new Date().toISOString() })
+      .eq('id', sessionId)
+      .is('started_at', null)
+      .select('id')
+      .single();
+    if (!startClaim) {
+      // Duplicate/replay start: another request already claimed this session.
+      // Return the intro WITHOUT calling the LLM again (idempotent, no double-bill).
+      const introText = language === 'zh-CN'
+        ? "你好！欢迎参加今天的技术面试。在正式开始深入探讨你的项目之前，能先简单做个自我介绍吗？"
+        : "Hello! Welcome to your technical interview today. Before we dive deep into your projects, could you give me a brief self-introduction?";
+      return new Response(JSON.stringify({
+        nextQuestion: introText, spokenQuestion: introText,
+        decision: "NEXT_CLAIM", answerStatus: "answered",
+        decisionRationale: "[System] Interview already started; returning intro (idempotent replay)."
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+
     const ai = getAI();
     const llmStartTime = Date.now();
     let streamResponse: any;
@@ -116,6 +138,8 @@ Rationale for probing: ${JSON.stringify(firstClaim.rationale)}`;
         billingMode: 'text', latencyMs: Date.now() - llmStartTime,
         success: false, errorCode: llmError.message || 'LLM_ERROR'
       });
+      // Reset the start claim so a genuine retry can proceed (don't poison the session on LLM failure).
+      await supabaseAdmin.from('interview_sessions').update({ started_at: null }).eq('id', sessionId);
       throw llmError;
     }
     const llmLatencyMs = Date.now() - llmStartTime;
@@ -148,14 +172,6 @@ Rationale for probing: ${JSON.stringify(firstClaim.rationale)}`;
       console.error("[Start] DB Update error:", updateError);
       return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
     }
-
-    // ATOMIC started_at: Use a conditional update so only the first request sets It.
-    // If started_at is already set (e.g. from a concurrent/duplicate request), this is a no-op.
-    await supabaseAdmin
-      .from('interview_sessions')
-      .update({ started_at: new Date().toISOString() })
-      .eq('id', sessionId)
-      .is('started_at', null);
 
     // M1 fix: Atomic token claim — check + increment in a single SQL statement.
     // S10 fix: Reuse tokenHash from verifyAuth() instead of rehashing.

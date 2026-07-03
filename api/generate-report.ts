@@ -96,6 +96,30 @@ export async function handleReportRequest(req: Request) {
 
   let lockedSessionId: string | null = null;
   let lockedSessionData: any = null;
+  let lockedOriginalStatus: string | null = null;
+  let didRollback = false;
+
+  // Idempotent rollback: restores the session's original status and records
+  // failed-generation metadata. Safe to call more than once (guarded by didRollback),
+  // so the watchdog can trigger it even while the for-await stays suspended.
+  async function rollbackSession(reason: string, isTimeout: boolean) {
+    if (didRollback || !lockedSessionId || !lockedSessionData) return;
+    didRollback = true;
+    const admin = getSupabaseAdmin();
+    const newRetryCount = (lockedSessionData.report?.retry_count || 0) + 1;
+    const failedReport = {
+      ...(lockedSessionData.report || {}),
+      failed_generation: true,
+      failure_reason: reason || 'Unknown',
+      error_type: isTimeout ? 'Timeout' : 'Stream_Error',
+      retry_count: newRetryCount
+    };
+    await admin
+      .from('interview_sessions')
+      .update({ status: (lockedOriginalStatus || 'INTERVIEW_ENDED'), report: failedReport })
+      .eq('id', lockedSessionId);
+    logger.info('SessionRolledBack', { session_id: lockedSessionId, retry_count: newRetryCount });
+  }
 
   try {
     const { sessionId } = await req.json();
@@ -111,12 +135,30 @@ export async function handleReportRequest(req: Request) {
 
     const supabaseAdmin = getSupabaseAdmin();
 
-    // 1. ATOMIC LOCK: Fetch and update session status to GENERATING to prevent race conditions
+    // 1. ATOMIC LOCK: Fetch and update session status to GENERATING to prevent race conditions.
+    // H3 fix: Read the original status FIRST so a mid-generation failure can restore it,
+    // instead of always forcing INTERVIEW_ENDED (which would kill a live IN_PROGRESS session).
+    const { data: preLock } = await supabaseAdmin
+      .from('interview_sessions')
+      .select('status')
+      .eq('id', sessionId)
+      .single();
+    const originalStatus = preLock?.status;
+    const LOCKABLE = ['IN_PROGRESS', 'NOT_FINISHED', 'INTERVIEW_ENDED'];
+    if (!originalStatus || !LOCKABLE.includes(originalStatus)) {
+      logger.error("SessionLockFailed", { error: "Not lockable", session_id: sessionId, status: "FAILED" });
+      return new Response(JSON.stringify({ error: "Session not found, already completed, or currently generating" }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    // Compare-and-swap on the specific original status keeps the lock atomic.
     const { data: sessionData, error: sessionError } = await supabaseAdmin
       .from('interview_sessions')
       .update({ status: 'GENERATING' })
       .eq('id', sessionId)
-      .in('status', ['IN_PROGRESS', 'NOT_FINISHED', 'INTERVIEW_ENDED'])
+      .eq('status', originalStatus)
       .select('*')
       .single();
 
@@ -127,10 +169,11 @@ export async function handleReportRequest(req: Request) {
         headers: { "Content-Type": "application/json" }
       });
     }
-    
+
     // Save state so we can roll back if it fails later
     lockedSessionId = sessionId;
     lockedSessionData = sessionData;
+    lockedOriginalStatus = originalStatus;
     
     logger.info("SessionLocked", { session_id: sessionId });
 
@@ -338,8 +381,13 @@ ${historyText}`;
 
           watchdog = setInterval(() => {
              if (Date.now() - lastChunkTime > 45000) {
+                 // C2 fix: The suspended for-await below never throws when the stream
+                 // stalls, so the catch(streamError) rollback never runs. Fire the
+                 // rollback here directly so the session can't stay GENERATING forever.
                  clearInterval(watchdog);
-                 controller.error(new Error("LLM_STREAM_TIMEOUT"));
+                 if (pingInterval) clearInterval(pingInterval);
+                 rollbackSession('LLM_STREAM_TIMEOUT', true).catch(() => {});
+                 try { controller.error(new Error("LLM_STREAM_TIMEOUT")); } catch {}
              }
           }, 1000);
 
@@ -454,26 +502,9 @@ ${historyText}`;
             errorCode: streamError.message || 'STREAM_ERROR'
           });
           
-          // ROLLBACK
-          if (lockedSessionId && lockedSessionData) {
-            const supabaseAdmin = getSupabaseAdmin();
-            const newRetryCount = (lockedSessionData.report?.retry_count || 0) + 1;
-            const failedReport = {
-               ...(lockedSessionData.report || {}),
-               failed_generation: true,
-               failure_reason: streamError.message || "Unknown Stream Error",
-               error_type: streamError.message?.includes("TIMEOUT") ? "Timeout" : "Stream_Error",
-               retry_count: newRetryCount
-            };
-            
-            await supabaseAdmin
-              .from('interview_sessions')
-              .update({ status: 'INTERVIEW_ENDED', report: failedReport })
-              .eq('id', lockedSessionId);
-              
-            logger.info("SessionRolledBack", { session_id: lockedSessionId, retry_count: newRetryCount });
-          }
-          
+          // ROLLBACK (idempotent — no-op if the watchdog already rolled back)
+          await rollbackSession(streamError.message, streamError.message?.includes("TIMEOUT"));
+
           controller.enqueue(encoder.encode(JSON.stringify({ error: streamError.message || "Generation failed" })));
           controller.close();
         }
@@ -492,26 +523,9 @@ ${historyText}`;
   } catch (error: any) {
     logger.error("FatalError", { error_message: error.message, status: "FAILED" });
     
-    // Hard ROLLBACK if it fails outside stream block
-    if (lockedSessionId && lockedSessionData) {
-      const supabaseAdmin = getSupabaseAdmin();
-      const newRetryCount = (lockedSessionData.report?.retry_count || 0) + 1;
-      const failedReport = {
-         ...(lockedSessionData.report || {}),
-         failed_generation: true,
-         failure_reason: error.message || "Unhandled Fatal Error",
-         error_type: error.message === "LLM_TIMEOUT" ? "Timeout" : "Fatal_Error",
-         retry_count: newRetryCount
-      };
-      
-      await supabaseAdmin
-        .from('interview_sessions')
-        .update({ status: 'INTERVIEW_ENDED', report: failedReport })
-        .eq('id', lockedSessionId);
-        
-      logger.info("SessionRolledBackOuter", { session_id: lockedSessionId, retry_count: newRetryCount });
-    }
-    
+    // Hard ROLLBACK if it fails outside stream block (idempotent)
+    await rollbackSession(error.message, error.message === "LLM_TIMEOUT");
+
     return new Response(JSON.stringify({ error: error.message || "Internal Server Error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" }

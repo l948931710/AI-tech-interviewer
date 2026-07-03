@@ -35,6 +35,13 @@ export default async function handler(req: Request, ctx: any) {
   try {
     const { sessionId, answer, question, questionId, requestId, language = 'zh-CN' } = await req.json();
 
+    if (typeof sessionId !== 'string' || !sessionId) {
+      return new Response(JSON.stringify({ error: "Missing or invalid sessionId" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    }
+    if (typeof answer !== 'string') {
+      return new Response(JSON.stringify({ error: "Missing or invalid answer" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    }
+
     if (sessionId !== auth.user.id.replace('candidate-', '')) {
       return new Response(JSON.stringify({ error: "Context mismatch" }), { status: 403 });
     }
@@ -322,6 +329,7 @@ CONSTRAINTS:
 ${isLastQuestionOverall ? '- CRITICAL: If decision is NEXT_CLAIM or FOLLOW_UP, start with "This is our final question for today".' : ''}`;
 
     // USER MESSAGE: All candidate-sourced data (untrusted)
+    const safeAnswer = String(answer ?? '').replace(/<\/?candidate_answer[^>]*>/gi, '[tag removed]');
     const userData = `Job Role Context: ${JSON.stringify(memory.getJobRoleContext())}
 Current Claim: ${JSON.stringify(currentClaim.claim)} (${JSON.stringify(currentClaim.experienceName || 'Not specified')})
 Must Verify Points: ${JSON.stringify(currentClaim.mustVerify || [])}
@@ -341,7 +349,7 @@ ${JSON.stringify({ lastTwoTurns: historyText })}
 
 Current Question: ${JSON.stringify(question)}
 <candidate_answer>
-${answer}
+${safeAnswer}
 </candidate_answer>`;
 
     const ai = getAI();

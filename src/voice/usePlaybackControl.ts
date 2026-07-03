@@ -1,9 +1,20 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 export function usePlaybackControl(language: 'zh-CN' | 'en-US' = 'zh-CN') {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const playbackIdRef = useRef<number>(0);
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+
+  // Unmount-only cleanup: close the AudioContext so repeated mounts
+  // (report replay, candidate reconnects) don't leak contexts until the
+  // browser hits its ~6-context cap and audio silently stops. Bumping
+  // playbackIdRef invalidates any in-flight playback loop so it stops too.
+  useEffect(() => () => {
+    playbackIdRef.current += 1;
+    try {
+      audioCtxRef.current?.close();
+    } catch {}
+  }, []);
 
   const stopAudio = useCallback(() => {
     playbackIdRef.current += 1;

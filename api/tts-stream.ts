@@ -87,24 +87,51 @@ export default async function handler(req: Request) {
       async start(controller) {
         try {
           let chunkCount = 0;
+          // M11 fix: account for the audio OUTPUT so estimateCost applies the
+          // output rate. Prefer real usageMetadata (Gemini usually attaches it
+          // on the final chunk); otherwise estimate from decoded audio bytes.
+          let lastUsage: any = null;
+          let audioBytes = 0;
           for await (const chunk of streamResponse) {
+            if (chunk.usageMetadata) {
+              lastUsage = chunk.usageMetadata; // keep the latest non-null one
+            }
             const audioData = chunk.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
             if (audioData) {
               chunkCount++;
+              // Decoded byte count from base64 length (excludes padding).
+              audioBytes += Math.floor(audioData.length * 3 / 4);
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ audioData })}\n\n`));
             }
           }
           console.log(`[TTS-Stream] Finished: sent ${chunkCount} audio chunks`);
-          // S7 fix: Estimate tokens from text length (~4 chars/token heuristic)
-          // TTS streaming doesn't expose usageMetadata, so we approximate.
+          // S7 fix: Estimate prompt tokens from text length (~4 chars/token heuristic)
           const estimatedPromptTokens = Math.ceil(text.length / 4);
+
+          // M11 fix: derive the completion (audio output) token count.
+          // This is APPROXIMATE — we prefer real usageMetadata when present.
+          // gemini-2.5-flash-preview-tts returns 24kHz 16-bit mono PCM =
+          // 48000 bytes/sec. We convert accumulated audio bytes to seconds and
+          // multiply by a heuristic tokens-per-second constant so the output
+          // cost (priced at $0.80 / 1M) is no longer billed as zero.
+          const APPROX_AUDIO_TOKENS_PER_SEC = 25; // heuristic — calibrate against real Google billing
+          let estCompletionTokens: number;
+          const metaCompletion = lastUsage?.candidatesTokenCount ?? lastUsage?.responseTokenCount;
+          if (typeof metaCompletion === 'number') {
+            estCompletionTokens = metaCompletion; // most accurate
+          } else {
+            const audioSeconds = audioBytes / 48000;
+            estCompletionTokens = Math.ceil(audioSeconds * APPROX_AUDIO_TOKENS_PER_SEC);
+          }
+
           if (supabaseAdmin && sessionId) {
             logLLMUsage(supabaseAdmin, {
               sessionId, endpoint: 'tts-stream',
               model: 'gemini-2.5-flash-preview-tts', billingMode: 'tts_audio',
               latencyMs: Date.now() - llmStartTime, success: true,
               promptTokenCount: estimatedPromptTokens,
-              totalTokenCount: estimatedPromptTokens,
+              responseTokenCount: estCompletionTokens,
+              totalTokenCount: estimatedPromptTokens + estCompletionTokens,
               segmentIndex
             });
           }

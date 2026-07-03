@@ -7,6 +7,10 @@ dotenv.config({ path: '.env.local' });
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Missing SUPABASE env vars (VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)');
+}
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
