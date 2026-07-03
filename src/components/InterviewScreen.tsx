@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bot, Video, VideoOff, CheckCircle2, Circle } from 'lucide-react';
+import { Video, VideoOff, Clock, Loader2, RefreshCw, Timer } from 'lucide-react';
 import { CandidateInfo, Claim } from '../agent/types';
 import { InterviewMemory } from '../agent/memory';
 import { useAudio, useCamera, useSilenceDetection, useInterruptionHandling } from '../voice';
+import type { AsrError } from '../voice';
 import { ChatDisplay } from '../ui/ChatDisplay';
 import { MicButton } from '../ui/MicButton';
 import { Camera } from '../ui/Camera';
@@ -23,6 +24,28 @@ interface InterviewScreenProps {
   onBargeIn?: () => void;
   onEndSession?: () => void;
   language?: 'zh-CN' | 'en-US';
+  // --- New optional props (contract D) ---
+  asrError?: AsrError | null;
+  onRetryAsr?: () => void;
+  elapsedMs?: number;
+  claimIndex?: number;
+  claimTotal?: number;
+  onRequestMoreTime?: () => void;
+  // Real candidate identifier (replaces the old hardcoded fake ID)
+  candidateId?: string;
+  // Optional hook so the parent can play a short "thinking" filler audio during evaluation
+  onThinkingFiller?: () => void;
+  // Called when the evaluating watchdog surfaces a soft retry affordance
+  onEvaluatingRetry?: () => void;
+  // True once the interview has ended and the final report is being generated
+  isGeneratingReport?: boolean;
+}
+
+function formatElapsed(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 export function InterviewScreen({ 
@@ -38,13 +61,45 @@ export function InterviewScreen({
   onSilenceTimeout,
   onBargeIn,
   onEndSession,
-  language = 'zh-CN'
+  language = 'zh-CN',
+  asrError: asrErrorProp,
+  onRetryAsr,
+  elapsedMs,
+  claimIndex,
+  claimTotal,
+  onRequestMoreTime,
+  candidateId,
+  onThinkingFiller,
+  onEvaluatingRetry,
+  isGeneratingReport = false
 }: InterviewScreenProps) {
   const { videoRef, hasVideo } = useCamera();
-  const { isListening, isSpeechDetected, transcript, interimTranscript, startListening, stopListening, setTranscript } = useAudio(language);
+  const {
+    isListening,
+    isSpeechDetected,
+    transcript,
+    interimTranscript,
+    startListening,
+    stopListening,
+    setTranscript,
+    asrError: asrErrorFromHook,
+    retryListening
+  } = useAudio(language);
   const [showCamera, setShowCamera] = useState(true);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
+  // 1.14 — candidate has explicitly asked for more time; pauses auto-skip escalation.
+  const [extraTimeRequested, setExtraTimeRequested] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const isZh = language === 'zh-CN';
+
+  // Prefer an explicitly-provided ASR error/retry (contract D) but fall back to the
+  // local hook so the caption still reflects real recognition failures.
+  const asrError = asrErrorProp ?? asrErrorFromHook ?? null;
+  const handleRetryAsr = useCallback(() => {
+    if (onRetryAsr) onRetryAsr();
+    else retryListening();
+  }, [onRetryAsr, retryListening]);
 
   const handleSubmit = useCallback(() => {
     const finalAnswer = transcript;
@@ -55,14 +110,21 @@ export function InterviewScreen({
     }
   }, [transcript, onAnswerSubmit, setTranscript, stopListening]);
 
-  const { silenceLevel, setSilenceLevel } = useSilenceDetection(
+  const { silenceLevel, setSilenceLevel, cancelPendingSubmit } = useSilenceDetection(
     isListening,
     isSpeechDetected,
     transcript,
     interimTranscript,
     onSilenceTimeout,
-    handleSubmit
+    handleSubmit,
+    { isAsrHealthy: !asrError, escalationPaused: extraTimeRequested }
   );
+
+  const handleRequestMoreTime = useCallback(() => {
+    setExtraTimeRequested(true);
+    cancelPendingSubmit?.();
+    onRequestMoreTime?.();
+  }, [cancelPendingSubmit, onRequestMoreTime]);
 
   useInterruptionHandling(
     isAiSpeaking,
@@ -78,7 +140,49 @@ export function InterviewScreen({
   // Reset reminder state when question changes
   useEffect(() => {
     setSilenceLevel(0);
+    setExtraTimeRequested(false);
   }, [currentQuestion, setSilenceLevel]);
+
+  // 4.2 / 4.4 — Evaluating watchdog. Track how long we've been in the silent
+  // "evaluating" gap so we can escalate the copy and eventually surface a retry
+  // affordance instead of leaving an unbounded frozen indicator.
+  const [evalElapsedMs, setEvalElapsedMs] = useState(0);
+  useEffect(() => {
+    if (!isEvaluating) {
+      setEvalElapsedMs(0);
+      return;
+    }
+    // 4.2 — optimistic acknowledgement: optionally trigger a filler-audio hook.
+    onThinkingFiller?.();
+    const start = Date.now();
+    setEvalElapsedMs(0);
+    const id = setInterval(() => setEvalElapsedMs(Date.now() - start), 500);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEvaluating]);
+
+  const evalStage = evalElapsedMs >= 15000 ? 2 : evalElapsedMs >= 4000 ? 1 : 0;
+  const evalCopy = evalStage >= 1
+    ? (isZh ? '还在思考…' : 'Still thinking…')
+    : (isZh ? '正在处理你的回答…' : 'Processing your answer…');
+
+  // 4.8 — Report-generation wait. Staged copy so the dedicated waiting screen
+  // never looks frozen while the final evaluation is being generated.
+  const [reportElapsedMs, setReportElapsedMs] = useState(0);
+  useEffect(() => {
+    if (!isGeneratingReport) {
+      setReportElapsedMs(0);
+      return;
+    }
+    const start = Date.now();
+    const id = setInterval(() => setReportElapsedMs(Date.now() - start), 500);
+    return () => clearInterval(id);
+  }, [isGeneratingReport]);
+
+  const reportStages = isZh
+    ? ['正在生成你的评估…', '正在整理你的回答…', '正在打分与撰写反馈…', '马上就好…']
+    : ['Generating your evaluation…', 'Organizing your responses…', 'Scoring and writing feedback…', 'Almost done…'];
+  const reportStageIndex = Math.min(reportStages.length - 1, Math.floor(reportElapsedMs / 6000));
 
   // Auto-scroll to bottom of transcript
   useEffect(() => {
@@ -122,6 +226,56 @@ export function InterviewScreen({
      }
   }
 
+  // 2.6 — Compact progress data (falls back to memory/claims when props absent).
+  const derivedClaimTotal = claimTotal ?? claims.length;
+  const derivedClaimIndex = claimIndex ?? (memory ? memory.getCurrentClaimIndex() : 0);
+  const topicLabel = derivedClaimTotal > 0
+    ? `${Math.min(derivedClaimIndex + 1, derivedClaimTotal)}/${derivedClaimTotal}`
+    : '';
+  const hasElapsed = typeof elapsedMs === 'number';
+
+  // 4.8 — Dedicated report-generation waiting screen (rendered instead of a
+  // frozen last frame once the interview has ended).
+  if (isGeneratingReport) {
+    return (
+      <div className="bg-background text-white font-body antialiased overflow-hidden relative flex h-screen w-full flex-col items-center justify-center">
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full aura-gradient opacity-[0.07] blur-[150px]"></div>
+          <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full aura-gradient opacity-[0.07] blur-[150px]"></div>
+        </div>
+        <div className="relative z-10 flex flex-col items-center gap-6 px-6 text-center">
+          <div className="size-16 rounded-full glass-panel flex items-center justify-center border border-primary/30 shadow-[0_0_25px_rgba(0,240,255,0.2)]">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+          <AnimatePresence mode="wait">
+            <motion.h2
+              key={reportStageIndex}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="text-2xl font-bold font-display tracking-tight aura-gradient-text"
+            >
+              {reportStages[reportStageIndex]}
+            </motion.h2>
+          </AnimatePresence>
+          <p className="text-sm text-white/50 max-w-sm font-light leading-relaxed">
+            {isZh
+              ? '请稍候，这通常只需要几秒钟。请不要关闭此页面。'
+              : 'This usually takes just a few seconds. Please keep this page open.'}
+          </p>
+          <div className="flex items-center gap-1.5 mt-2">
+            {reportStages.map((_, i) => (
+              <span
+                key={i}
+                className={`h-1.5 rounded-full transition-all duration-500 ${i <= reportStageIndex ? 'w-8 aura-gradient' : 'w-4 bg-white/10'}`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-background text-white font-body antialiased overflow-hidden relative flex h-screen w-full flex-col">
       {/* Background Effects */}
@@ -135,6 +289,25 @@ export function InterviewScreen({
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-bold font-display tracking-tight aura-gradient-text">AURA</h2>
         </div>
+
+        {/* Compact mobile progress indicator (2.6) */}
+        {(hasElapsed || topicLabel) && (
+          <div className="flex md:hidden items-center gap-3 mx-auto px-3 py-1.5 rounded-full glass-panel border border-primary/20">
+            {hasElapsed && (
+              <span className="flex items-center gap-1.5 text-[11px] font-bold tabular-nums text-white/90">
+                <Clock size={12} className="text-primary" />
+                {formatElapsed(elapsedMs as number)}
+              </span>
+            )}
+            {hasElapsed && topicLabel && <span className="w-px h-3 bg-white/15" />}
+            {topicLabel && (
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-white/70">
+                <span className="text-[9px] uppercase tracking-[0.1em] text-white/40">{isZh ? '主题' : 'Topic'}</span>
+                {topicLabel}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Progress Tracker */}
         <div className="flex-1 max-w-2xl mx-auto px-12 hidden md:block">
@@ -178,9 +351,18 @@ export function InterviewScreen({
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Elapsed timer — visible on desktop where the compact mobile pill is hidden (2.6) */}
+          {hasElapsed && (
+            <span className="hidden md:flex items-center gap-1.5 text-xs font-bold tabular-nums text-white/80 px-3 py-1.5 rounded-full glass-panel border border-primary/20">
+              <Clock size={12} className="text-primary" />
+              {formatElapsed(elapsedMs as number)}
+            </span>
+          )}
           <div className="text-right hidden sm:block">
             <p className="text-sm font-bold text-white">{candidateInfo.name}</p>
-            <p className="text-xs text-white/50">Candidate ID: #8821</p>
+            {candidateId && (
+              <p className="text-xs text-white/50">{isZh ? '候选人编号' : 'Candidate ID'}: {candidateId}</p>
+            )}
           </div>
           <div className="size-10 rounded-full glass-panel flex items-center justify-center border border-primary/30 overflow-hidden text-primary font-display font-bold shadow-[0_0_15px_rgba(0,240,255,0.15)]">
             {candidateInfo.name.charAt(0)}
@@ -209,7 +391,7 @@ export function InterviewScreen({
           <span className="text-[11px] font-bold uppercase tracking-widest text-white/90">Aura is Speaking</span>
         </div>
 
-        <AudioPlaybackState 
+        <AudioPlaybackState
           isEvaluating={isEvaluating}
           isAiSpeaking={isAiSpeaking}
           isPreparingAudio={isPreparingAudio}
@@ -219,7 +401,45 @@ export function InterviewScreen({
           isSpeechDetected={isSpeechDetected}
           transcript={transcript}
           interimTranscript={interimTranscript}
+          asrError={asrError}
+          onRetryAsr={handleRetryAsr}
         />
+
+        {/* 4.2 / 4.4 — Thinking-gap filler + evaluating watchdog. Gives the
+            candidate an immediate acknowledgement, escalates the copy, and
+            surfaces a soft retry after ~15s so the indicator is never frozen. */}
+        <AnimatePresence>
+          {isEvaluating && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="mt-4 flex flex-col items-center gap-3 z-20"
+            >
+              <div className="flex items-center gap-2 px-4 py-2 rounded-full glass-panel border border-primary/20 text-sm text-white/90">
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                <span>{evalCopy}</span>
+              </div>
+              {evalStage >= 2 && (
+                onEvaluatingRetry ? (
+                  <button
+                    onClick={onEvaluatingRetry}
+                    className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-primary hover:text-white transition-colors"
+                  >
+                    <RefreshCw size={12} />
+                    {isZh ? '重试' : 'Retry'}
+                  </button>
+                ) : (
+                  <p className="text-xs text-white/50 max-w-xs text-center">
+                    {isZh
+                      ? '这次评估花的时间比平常长，请再稍等片刻。'
+                      : 'This is taking longer than usual — please hang on a moment.'}
+                  </p>
+                )
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="mt-8 w-full max-w-xl z-20">
           <ChatDisplay 
@@ -236,14 +456,32 @@ export function InterviewScreen({
 
       {/* Footer Controls */}
       <footer className="px-8 py-8 flex items-center justify-center gap-6 shrink-0 relative z-20">
-        <MicButton 
+        <MicButton
           isListening={isListening}
           isEvaluating={isEvaluating}
           isAiSpeaking={isAiSpeaking}
           startListening={startListening}
           stopListening={stopListening}
         />
-        
+
+        {/* 1.14 — Pause auto-skip: let the candidate ask for more time. */}
+        {isListening && !isEvaluating && !isAiSpeaking && (
+          extraTimeRequested ? (
+            <span className="px-6 h-12 rounded-full bg-primary/10 text-primary border border-primary/20 flex items-center justify-center gap-2 font-bold text-[11px] tracking-widest uppercase backdrop-blur-md">
+              <Timer size={14} />
+              {isZh ? '已暂停自动跳过' : 'Auto-skip paused'}
+            </span>
+          ) : (
+            <button
+              onClick={handleRequestMoreTime}
+              className="px-6 h-12 rounded-full bg-white/5 text-white/80 border border-white/10 flex items-center justify-center gap-2 font-bold text-[11px] tracking-widest uppercase hover:bg-white/10 hover:text-white transition-all backdrop-blur-md"
+            >
+              <Timer size={14} />
+              {isZh ? '需要更多时间?' : 'Need more time?'}
+            </button>
+          )
+        )}
+
         {onEndSession && (
           <button 
             onClick={() => setShowEndConfirm(true)}

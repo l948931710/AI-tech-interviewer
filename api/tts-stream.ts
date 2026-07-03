@@ -33,6 +33,25 @@ function getAI(): GoogleGenAI {
   return cachedAI;
 }
 
+// 4.7 CACHEABLE: the interviewer emits a small, finite set of fixed override /
+// non-answer / closing strings (see api/agent/next-step.ts). Their synthesized
+// audio is identical every time, so we memoize the decoded audio chunks in a
+// tiny, bounded, per-instance in-memory cache keyed by voice+text. This is a
+// best-effort warm-instance optimization only (edge instances are ephemeral and
+// unshared) — a cache MISS always falls through to normal generation, so the
+// response contract is unchanged. Bounds are deliberately conservative to keep
+// edge memory usage negligible.
+//   TODO: for a cross-instance / durable cache, move this to Supabase storage or
+//   a KV and prewarm the fixed strings at deploy time.
+const TTS_CACHE_MAX_ENTRIES = 32;          // at most this many distinct strings
+const TTS_CACHE_MAX_CHARS = 200;           // only cache short (fixed) strings
+const TTS_CACHE_MAX_CHUNKS = 512;          // guard against unexpectedly large audio
+const ttsAudioCache = new Map<string, string[]>();
+
+function ttsCacheKey(voice: string, text: string): string {
+  return `${voice}::${text}`;
+}
+
 export default async function handler(req: Request) {
   if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
@@ -44,7 +63,20 @@ export default async function handler(req: Request) {
 
   try {
     const ai = getAI();
-    const { text, sessionId, segmentIndex } = await req.json();
+    const { text, sessionId, segmentIndex, warmup } = await req.json();
+
+    // 4.9 COLD-START WARMUP: the client prewarms this function on interview
+    // screen mount by POSTing { warmup: true }. We touch getAI() above (which
+    // instantiates + module-caches the Gemini SDK client on a cold container)
+    // and return 200 immediately WITHOUT generating any audio. This keeps the
+    // heavy first-invocation cost (bundle init + SDK construction) off the
+    // critical path of the first real TTS request. Normal path is unchanged.
+    if (warmup === true) {
+      return new Response(JSON.stringify({ warmed: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
 
     if (!text) {
       return new Response(JSON.stringify({ error: "Missing required field: text" }), {
@@ -63,10 +95,42 @@ export default async function handler(req: Request) {
       }
     }
 
+    const VOICE_NAME = 'Kore';
+    const cacheKey = ttsCacheKey(VOICE_NAME, text);
+
+    // 4.7: Fast replay for a known fixed string (e.g. override / closing lines).
+    // A cache HIT skips the model entirely and re-emits the exact same SSE audio
+    // frames; there is no billable model call, so we don't log usage here.
+    const cachedChunks = ttsAudioCache.get(cacheKey);
+    if (cachedChunks) {
+      console.log(`[TTS-Stream] Cache HIT for ${text.length} chars, ${cachedChunks.length} chunks`);
+      const encoder = new TextEncoder();
+      const cachedStream = new ReadableStream({
+        start(controller) {
+          for (const audioData of cachedChunks) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ audioData })}\n\n`));
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        }
+      });
+      return new Response(cachedStream, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        }
+      });
+    }
+
     console.log(`[TTS-Stream] Generating audio for ${text.length} chars, voice=Kore`);
 
-    const VOICE_NAME = 'Kore';
     const TTS_SYSTEM_PROMPT = 'You are a professional female AI interviewer. Maintain a calm, warm, and authoritative tone throughout. Speak clearly and at a moderate pace. Read the following text aloud exactly as written.';
+
+    // 4.7: only short (fixed) strings are eligible for the in-memory cache.
+    const cacheEligible = typeof text === 'string' && text.length <= TTS_CACHE_MAX_CHARS;
+    const collectedChunks: string[] = [];
 
     const llmStartTime = Date.now();
     const streamResponse = await ai.models.generateContentStream({
@@ -101,10 +165,24 @@ export default async function handler(req: Request) {
               chunkCount++;
               // Decoded byte count from base64 length (excludes padding).
               audioBytes += Math.floor(audioData.length * 3 / 4);
+              // 4.7: buffer chunks for the fixed-string cache (bounded).
+              if (cacheEligible && collectedChunks.length < TTS_CACHE_MAX_CHUNKS) {
+                collectedChunks.push(audioData);
+              }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ audioData })}\n\n`));
             }
           }
           console.log(`[TTS-Stream] Finished: sent ${chunkCount} audio chunks`);
+
+          // 4.7: memoize this fixed string's audio for warm-instance reuse.
+          // Only store complete (non-truncated) captures; evict oldest to bound.
+          if (cacheEligible && collectedChunks.length > 0 && collectedChunks.length === chunkCount) {
+            if (ttsAudioCache.size >= TTS_CACHE_MAX_ENTRIES) {
+              const oldest = ttsAudioCache.keys().next().value;
+              if (oldest !== undefined) ttsAudioCache.delete(oldest);
+            }
+            ttsAudioCache.set(cacheKey, collectedChunks);
+          }
           // S7 fix: Estimate prompt tokens from text length (~4 chars/token heuristic)
           const estimatedPromptTokens = Math.ceil(text.length / 4);
 

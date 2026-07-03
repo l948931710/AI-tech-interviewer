@@ -155,6 +155,11 @@ async function handleIntroTurn(sessionId: string, answer: string, question: stri
     persistTask().catch(e => console.error(e));
   }
 
+  // 4.7 CACHEABLE (deterministic turn): `firstQuestion` is precomputed at
+  // session creation and served on the fast JSON path here — no model call. Its
+  // TTS audio is identical for a given session and a future prewarm step can
+  // reuse it (see tts-stream.ts warmup path). Response shape must stay a plain
+  // JSON NextStep so the client degrades gracefully.
   return new Response(JSON.stringify({
     spokenQuestion: firstQuestion,
     nextQuestion: firstQuestion,
@@ -274,6 +279,13 @@ async function handleTechnicalTurn(sessionId: string, answer: string, question: 
   let parsed: any = null;
 
   const trimmedAnswer = answer.trim();
+  // 4.7 CACHEABLE (deterministic turns): the fast-path fallback strings below
+  // (non-answer skip / graceful-end / first-non-answer) and the override
+  // strings in the streaming branch are STATIC per-language literals — no model
+  // call. They are already served on the fast JSON path (see the return at the
+  // end of this function). Their TTS is a fixed, finite set that a future
+  // prewarm/prerender step can cache and reuse; keep them as plain string
+  // literals so that stays trivial.
   const NON_ANSWER_PATTERNS = /^(不知道|不清楚|不了解|没做过|没有|不会|不记得|不太清楚|不太了解|不太知道|我不知道|我不清楚|我不了解|我没做过|我不会|我不记得|没什么|没有了|就这些|说不上来|想不起来|pass|skip|i don'?t know|no idea|not sure|i'?m not sure)$/i;
   
   if (trimmedAnswer.length < 30 && NON_ANSWER_PATTERNS.test(trimmedAnswer)) {
@@ -353,53 +365,81 @@ ${safeAnswer}
 </candidate_answer>`;
 
     const ai = getAI();
-    let streamResponse: any;
     const llmStartTime = Date.now();
 
-    try {
-      streamResponse = await ai.models.generateContentStream({
-        model: "gemini-3-flash-preview",
-        contents: userData,
-        config: {
-          systemInstruction: systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "OBJECT",
-            properties: {
-              spokenQuestion: { type: "STRING" },
-              nextQuestion: { type: "STRING" },
-              answerStatus: { type: "STRING", description: "answered, partial, clarification_request, or non_answer" },
-              decision: { type: "STRING", description: "FOLLOW_UP, NEXT_CLAIM, REPEAT_QUESTION, or END_INTERVIEW" },
-              followUpIntent: { type: "STRING", description: "CLARIFY_GAP, DEEPEN, or CHALLENGE" },
-              decisionRationale: { type: "STRING" },
-              coveredPoints: { type: "ARRAY", items: { type: "STRING" } },
-              missingPoints: { type: "ARRAY", items: { type: "STRING" } }
-            },
-            required: ["spokenQuestion", "nextQuestion", "answerStatus", "decision", "decisionRationale", "coveredPoints", "missingPoints"]
-          }
+    // 4.6: The model request is defined here but AWAITED INSIDE the SSE stream
+    // (below), so we can flush an immediate ack + periodic heartbeats to the
+    // client before the model produces its first token. Config is unchanged to
+    // preserve the response contract.
+    const modelRequest = {
+      model: "gemini-3-flash-preview",
+      contents: userData,
+      config: {
+        systemInstruction: systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            spokenQuestion: { type: "STRING" },
+            nextQuestion: { type: "STRING" },
+            answerStatus: { type: "STRING", description: "answered, partial, clarification_request, or non_answer" },
+            decision: { type: "STRING", description: "FOLLOW_UP, NEXT_CLAIM, REPEAT_QUESTION, or END_INTERVIEW" },
+            followUpIntent: { type: "STRING", description: "CLARIFY_GAP, DEEPEN, or CHALLENGE" },
+            decisionRationale: { type: "STRING" },
+            coveredPoints: { type: "ARRAY", items: { type: "STRING" } },
+            missingPoints: { type: "ARRAY", items: { type: "STRING" } }
+          },
+          required: ["spokenQuestion", "nextQuestion", "answerStatus", "decision", "decisionRationale", "coveredPoints", "missingPoints"]
         }
-      });
-    } catch (llmError: any) {
-      logLLMUsage(supabaseAdmin, {
-        sessionId, requestId, endpoint: 'next-step', model: 'gemini-3-flash-preview',
-        billingMode: 'text', latencyMs: Date.now() - llmStartTime,
-        success: false, errorCode: llmError.message || 'LLM_ERROR'
-      });
-      throw llmError;
-    }
+      }
+    };
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        // 4.6: Immediately signal "connected & thinking" BEFORE awaiting the
+        // model. 'ack' is a distinct event that carries NO NextStep payload, so
+        // the client SSE parser can safely ignore it (it only reads its 'data'
+        // for an optional status string).
+        controller.enqueue(encoder.encode(`event: ack\ndata: ${JSON.stringify({ status: 'thinking' })}\n\n`));
+
+        // 4.6: Periodic ':' comment heartbeat while we wait on the model. SSE
+        // comment lines (a line starting with ':') are ignored by every
+        // compliant parser and keep proxies / load balancers from dropping the
+        // idle socket, so the client can distinguish a slow-but-alive model
+        // from a dead connection.
+        let heartbeat: any = setInterval(() => {
+          try { controller.enqueue(encoder.encode(`: keepalive ${Date.now()}\n\n`)); } catch { /* controller already closed */ }
+        }, 10000);
+        const stopHeartbeat = () => { if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } };
+
+        let streamResponse: any;
+        try {
+          streamResponse = await ai.models.generateContentStream(modelRequest);
+        } catch (llmError: any) {
+          logLLMUsage(supabaseAdmin, {
+            sessionId, requestId, endpoint: 'next-step', model: 'gemini-3-flash-preview',
+            billingMode: 'text', latencyMs: Date.now() - llmStartTime,
+            success: false, errorCode: llmError.message || 'LLM_ERROR'
+          });
+          stopHeartbeat();
+          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: llmError.message || 'LLM_ERROR' })}\n\n`));
+          controller.close();
+          return;
+        }
+
         let buffer = "";
         let inSpokenQuestion = false;
         let spokenQuestionBuffer = "";
         let lastSentIndex = 0;
         let segmentIndex = 0;
         let finalJsonString = "";
-        
+
         try {
           for await (const chunk of streamResponse) {
+            // Real model output has begun — stop the pre-model heartbeat so the
+            // ':' comments don't interleave with 'sentence' data frames.
+            stopHeartbeat();
             const textChunk = chunk.text;
             buffer += textChunk;
             finalJsonString += textChunk;
@@ -540,12 +580,14 @@ ${safeAnswer}
           });
           
           parsed.transcript = transcript;
-          
+
+          stopHeartbeat();
           controller.enqueue(encoder.encode(`event: complete\ndata: ${JSON.stringify(parsed)}\n\n`));
           controller.close();
-          
+
         } catch (streamError: any) {
           console.error("Streaming error", streamError);
+          stopHeartbeat();
           controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: streamError.message })}\n\n`));
           controller.close();
         }
