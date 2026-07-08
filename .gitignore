@@ -12,17 +12,18 @@ coverage/
 .env.staging
 .env.beta
 !.env.example
+# Ignore stray SQL (e.g. local data dumps) but DO commit committed migrations.
 *.sql
+!scripts/*.sql
+!supabase/migrations/*.sql
 
 # Development scratch files & one-off patches
 scratch/
 patch*.py
 
+# Local Claude Code / preview tooling config
+.claude/
+
 # Simulation output & benchmark data (exposes interview strategy)
 output/
 benchmarks/
-
-# Test infrastructure (local-only, not committed)
-tests/
-vitest.config.ts
-api/agent/decision-engine.ts

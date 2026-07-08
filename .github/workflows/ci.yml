@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run lint
+
+      # Unit + integration tests only. The tests/eval/* suite calls the live Gemini
+      # API (needs GEMINI_API_KEY) and is intentionally excluded from CI.
+      - name: Test
+        run: npm run test:ci
+
+      - name: Build
+        run: npm run build

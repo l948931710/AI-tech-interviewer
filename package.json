@@ -10,6 +10,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",
+    "test:ci": "vitest run tests/unit tests/integration",
     "test:watch": "vitest"
   },
   "dependencies": {
