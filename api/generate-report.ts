@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import { jsonrepair } from "jsonrepair";
 import { logLLMUsage } from "./llm-logger";
+import { underRateLimit, tooManyRequestsResponse, LIMITS } from "./rate-limit";
 
 function generateUUID() {
   return crypto.randomUUID();
@@ -85,6 +86,16 @@ export async function handleReportRequest(req: Request) {
   const auth = await verifyAuth(req);
   if (auth.error) return auth.error;
 
+  // C4: per-HR-user rate limit on the expensive (pro-model) report endpoint. Runs before
+  // the main try block, so fail-open if the admin client can't be built (env issue).
+  try {
+    if (!(await underRateLimit(getSupabaseAdmin(), `report:${auth.user.id}`, LIMITS.report.limit, LIMITS.report.windowSeconds))) {
+      return tooManyRequestsResponse();
+    }
+  } catch (e) {
+    console.error('[Generate-Report] Rate-limit check skipped:', e);
+  }
+
   const requestId = generateUUID();
   const startTime = Date.now();
   
@@ -140,9 +151,22 @@ export async function handleReportRequest(req: Request) {
     // instead of always forcing INTERVIEW_ENDED (which would kill a live IN_PROGRESS session).
     const { data: preLock } = await supabaseAdmin
       .from('interview_sessions')
-      .select('status')
+      .select('status, created_by')
       .eq('id', sessionId)
       .single();
+
+    // C3 fix (IDOR): only the session's creator may generate its report. This check was
+    // dropped upstream ("ownership check removed"), exposing another recruiter's candidate
+    // transcript + the expensive pro-model call. Ownership is immutable, so this is race-free.
+    // Legacy sessions with a NULL created_by are left as-is (no owner to protect).
+    if (preLock && preLock.created_by && preLock.created_by !== auth.user.id) {
+      logger.warn("OwnershipDenied", { session_id: sessionId, status: "FORBIDDEN" });
+      return new Response(JSON.stringify({ error: "Not authorized to generate a report for this session" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
     const originalStatus = preLock?.status;
     const LOCKABLE = ['IN_PROGRESS', 'NOT_FINISHED', 'INTERVIEW_ENDED'];
     if (!originalStatus || !LOCKABLE.includes(originalStatus)) {
@@ -177,7 +201,7 @@ export async function handleReportRequest(req: Request) {
     
     logger.info("SessionLocked", { session_id: sessionId });
 
-    // Note: Any authenticated HR user can generate reports (ownership check removed)
+    // Ownership verified above (C3 fix): only the session creator reaches this point.
 
     // 2. Fetch claims
     const { data: claimsData } = await supabaseAdmin

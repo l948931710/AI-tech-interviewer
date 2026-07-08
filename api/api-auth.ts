@@ -44,10 +44,18 @@ export async function verifyAuth(req: Request): Promise<
   const interviewToken = req.headers.get('X-Interview-Token');
   const sessionId = req.headers.get('X-Session-Id');
 
-  // 0. Local Dev Bypass (dev-only; disabled in production). Never strictly enforce if using entirely local JSON DB.
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
-  if (sessionId && process.env.VITE_USE_LOCAL_DB === 'true' && !isProduction) {
-    return { user: { id: `candidate-${sessionId}` } };
+  // 0. Local Dev Bypass — DEV ONLY. Fails closed in production.
+  // C2 fix: the old check keyed on VITE_USE_LOCAL_DB, a client-exposed build flag that
+  // .env.example shipped as `true` — so a single copied env file could disable candidate
+  // auth in a real deployment. The bypass now requires BOTH a dedicated server-only opt-in
+  // (ALLOW_INSECURE_LOCAL_AUTH, never a VITE_-prefixed flag) AND a non-production runtime.
+  if (process.env.ALLOW_INSECURE_LOCAL_AUTH === 'true') {
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+    if (isProduction) {
+      console.error('[Auth] SECURITY: ALLOW_INSECURE_LOCAL_AUTH is set in a production runtime — ignoring the local auth bypass. Unset it immediately.');
+    } else if (sessionId) {
+      return { user: { id: `candidate-${sessionId}` } };
+    }
   }
 
   if (interviewToken && sessionId) {
