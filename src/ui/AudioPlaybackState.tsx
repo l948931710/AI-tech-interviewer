@@ -58,8 +58,8 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
   } = props;
 
   const status = resolveStatus(props);
-  // AI states get the purple aura treatment; user states get primary green,
-  // so the wave color alone tells you whose turn it is.
+  // Two-role signal: the AI speaks in warm-white light, the candidate answers in
+  // lime — so the wave color alone tells you whose turn it is.
   const aiActive = isEvaluating || isPreparingAudio || isAiSpeaking;
 
   const waveHeights = [
@@ -67,18 +67,18 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
     'h-64', 'h-56', 'h-40', 'h-24', 'h-16', 'h-8', 'h-4'
   ];
 
-  // Two distinct color ramps: purple (AI) vs green (user).
+  // Two distinct color ramps: warm-white (AI) vs lime (user).
   const userOpacities = [
     'bg-primary/20', 'bg-primary/30', 'bg-primary/40', 'bg-primary/60',
-    'bg-primary', 'bg-primary shadow-[0_0_20px_rgba(17,212,17,0.4)]', 'bg-primary shadow-[0_0_25px_rgba(17,212,17,0.5)]',
-    'bg-primary', 'bg-primary shadow-[0_0_25px_rgba(17,212,17,0.5)]', 'bg-primary shadow-[0_0_20px_rgba(17,212,17,0.4)]',
+    'bg-primary', 'bg-primary shadow-[0_0_20px_rgba(198,242,78,0.4)]', 'bg-primary shadow-[0_0_25px_rgba(198,242,78,0.5)]',
+    'bg-primary', 'bg-primary shadow-[0_0_25px_rgba(198,242,78,0.5)]', 'bg-primary shadow-[0_0_20px_rgba(198,242,78,0.4)]',
     'bg-primary', 'bg-primary/60', 'bg-primary/40', 'bg-primary/30', 'bg-primary/20'
   ];
   const aiOpacities = [
-    'bg-[#b026ff]/20', 'bg-[#b026ff]/30', 'bg-[#b026ff]/40', 'bg-[#b026ff]/60',
-    'bg-[#b026ff]', 'bg-[#b026ff] shadow-[0_0_20px_rgba(176,38,255,0.4)]', 'bg-[#b026ff] shadow-[0_0_25px_rgba(176,38,255,0.5)]',
-    'bg-[#b026ff]', 'bg-[#b026ff] shadow-[0_0_25px_rgba(176,38,255,0.5)]', 'bg-[#b026ff] shadow-[0_0_20px_rgba(176,38,255,0.4)]',
-    'bg-[#b026ff]', 'bg-[#b026ff]/60', 'bg-[#b026ff]/40', 'bg-[#b026ff]/30', 'bg-[#b026ff]/20'
+    'bg-[#e8e6e1]/20', 'bg-[#e8e6e1]/30', 'bg-[#e8e6e1]/40', 'bg-[#e8e6e1]/60',
+    'bg-[#e8e6e1]', 'bg-[#e8e6e1] shadow-[0_0_20px_rgba(232,230,225,0.4)]', 'bg-[#e8e6e1] shadow-[0_0_25px_rgba(232,230,225,0.5)]',
+    'bg-[#e8e6e1]', 'bg-[#e8e6e1] shadow-[0_0_25px_rgba(232,230,225,0.5)]', 'bg-[#e8e6e1] shadow-[0_0_20px_rgba(232,230,225,0.4)]',
+    'bg-[#e8e6e1]', 'bg-[#e8e6e1]/60', 'bg-[#e8e6e1]/40', 'bg-[#e8e6e1]/30', 'bg-[#e8e6e1]/20'
   ];
   const barColors = aiActive ? aiOpacities : userOpacities;
 
@@ -92,8 +92,8 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
       {currentQuestion && (
         <div className="w-full mb-4 px-2">
           <div className="mx-auto max-w-xl text-center">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">AI</span>
-            <p className="text-base md:text-lg font-medium leading-relaxed text-white/90">
+            <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#e8e6e1]/60">AI</span>
+            <p className="text-base md:text-lg font-medium leading-relaxed text-white/90 mt-1">
               {currentQuestion}
             </p>
           </div>
@@ -137,7 +137,7 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="absolute -top-12 bg-primary text-white px-4 py-2 rounded-full shadow-lg text-sm flex items-center gap-2 z-50 whitespace-nowrap tracking-wide"
+            className="absolute -top-12 bg-primary text-background px-4 py-2 rounded-full shadow-lg text-sm flex items-center gap-2 z-50 whitespace-nowrap tracking-wide"
           >
             <Loader2 className="w-4 h-4 animate-spin" />
             Waiting for your response...
@@ -191,7 +191,7 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className={`text-sm font-bold uppercase tracking-widest flex items-center gap-2 ${
-                status.tone === 'ai' ? 'text-[#b026ff]' : 'text-primary'
+                status.tone === 'ai' ? 'text-[#e8e6e1]' : 'text-primary'
               }`}
             >
               {status.spinner && <Loader2 className="animate-spin w-4 h-4" />}

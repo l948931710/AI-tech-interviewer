@@ -38,7 +38,7 @@ export function ChatDisplay({
 
   return (
     <div
-      className="w-full bg-white/40 dark:bg-black/20 backdrop-blur-sm rounded-xl p-6 border border-slate-200/50 dark:border-white/5 max-h-56 overflow-y-auto flex flex-col gap-4"
+      className="w-full bg-black/30 backdrop-blur-sm rounded-2xl p-6 border border-white/8 max-h-56 overflow-y-auto flex flex-col gap-4"
       ref={scrollRef}
     >
       {/* AI role bubble — the question, always visible while set */}
@@ -49,7 +49,7 @@ export function ChatDisplay({
           </div>
           <div className="flex-1 mt-1">
             <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">AI</span>
-            <p className="text-sm font-medium leading-relaxed text-slate-800 dark:text-slate-100">
+            <p className="text-sm font-medium leading-relaxed text-white/90">
               {currentQuestion}
             </p>
           </div>
@@ -59,11 +59,11 @@ export function ChatDisplay({
       {/* Candidate role bubble — live transcript, or preserved "sent" answer */}
       {showCandidate && (
         <div className="flex items-start gap-4 flex-row-reverse text-right">
-          <div className="size-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
+          <div className="size-8 rounded-full bg-white/10 text-white/70 flex items-center justify-center flex-shrink-0">
             <span className="material-symbols-outlined text-sm">person</span>
           </div>
           <div className="flex-1 mt-1">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 flex items-center justify-end gap-1">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-white/40 flex items-center justify-end gap-1">
               You
               {sentAnswer && (
                 <span className="material-symbols-outlined text-[12px] leading-none text-primary">check</span>
@@ -71,11 +71,11 @@ export function ChatDisplay({
             </span>
             <div className="text-sm font-medium leading-relaxed">
               {sentAnswer ? (
-                <span className="text-slate-500 dark:text-slate-400">{sentAnswer}</span>
+                <span className="text-white/50">{sentAnswer}</span>
               ) : (
                 <>
-                  <span className="text-slate-900 dark:text-slate-100">{transcript}</span>
-                  <span className="text-slate-500 italic ml-1">{interimTranscript}</span>
+                  <span className="text-white/90">{transcript}</span>
+                  <span className="text-white/40 italic ml-1">{interimTranscript}</span>
                   {isListening && transcript.trim() && !interimTranscript.trim() && (
                     <span className="inline-block ml-2 w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
                   )}

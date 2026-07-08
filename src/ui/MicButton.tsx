@@ -27,9 +27,10 @@ export function MicButton({ isListening, isEvaluating, isAiSpeaking, startListen
       className={`relative size-14 rounded-full flex items-center justify-center transition-all ${
         isListening
           // Non-color signals for the "on" state: an outer ring + scale bump,
-          // so the active state is legible without relying on green alone.
-          ? 'bg-primary text-white hover:bg-green-600 shadow-[0_0_15px_rgba(17,212,17,0.4)] scale-110 ring-2 ring-primary ring-offset-2 ring-offset-background'
-          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 ring-1 ring-slate-300 dark:ring-slate-700'
+          // so the active state is legible without relying on the accent alone.
+          // Near-black text on lime keeps AA contrast (white-on-lime would fail).
+          ? 'bg-primary text-background hover:bg-[#b6e63a] shadow-[0_0_20px_rgba(198,242,78,0.35)] scale-110 ring-2 ring-primary ring-offset-2 ring-offset-background'
+          : 'bg-white/[0.06] text-white/70 hover:bg-white/[0.12] hover:text-white ring-1 ring-white/10'
       } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       {/* Icon itself is a non-color state signal: mic (on) vs mic_off (off). */}

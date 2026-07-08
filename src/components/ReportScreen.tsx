@@ -400,7 +400,7 @@ export default function ReportScreen({ report, candidateInfo, history }: ReportS
                     <PolarGrid stroke="rgba(255,255,255,0.12)" />
                     <PolarAngleAxis dataKey="subject" tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 500 }} />
                     <PolarRadiusAxis angle={30} domain={[0, 10]} tick={{ fill: 'rgba(255,255,255,0.4)' }} />
-                    <Radar name="Candidate" dataKey="A" stroke="#00f0ff" fill="#00f0ff" fillOpacity={0.35} />
+                    <Radar name="Candidate" dataKey="A" stroke="#c6f24e" fill="#c6f24e" fillOpacity={0.35} />
                   </RadarChart>
                 </ResponsiveContainer>
               </div>

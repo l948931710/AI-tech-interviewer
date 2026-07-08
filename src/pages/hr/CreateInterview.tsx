@@ -92,7 +92,7 @@ export default function CreateInterview() {
         <div className="relative z-10 animate-[fadeIn_0.5s_ease-out] flex flex-col items-center">
           <div className="relative mb-8">
             <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full"></div>
-            <CheckCircle className="text-primary w-20 h-20 relative z-10 drop-shadow-[0_0_15px_rgba(0,240,255,0.5)]" />
+            <CheckCircle className="text-primary w-20 h-20 relative z-10 drop-shadow-[0_0_15px_rgba(198,242,78,0.5)]" />
           </div>
           
           <h1 className="text-4xl font-display font-bold text-white mb-4 tracking-tight">Interview Initialized</h1>
@@ -111,7 +111,7 @@ export default function CreateInterview() {
             />
             <button
               onClick={handleCopy}
-              className="flex items-center gap-2 aura-gradient text-background px-6 py-3 rounded-xl font-bold text-[13px] tracking-wider uppercase hover:opacity-90 transition-all shadow-[0_0_15px_rgba(0,240,255,0.2)] whitespace-nowrap"
+              className="flex items-center gap-2 aura-gradient text-background px-6 py-3 rounded-xl font-bold text-[13px] tracking-wider uppercase hover:opacity-90 transition-all shadow-[0_0_15px_rgba(198,242,78,0.2)] whitespace-nowrap"
             >
               {copied ? <CheckCircle size={16} /> : <Copy size={16} />}
               {copied ? 'Copied' : 'Copy'}

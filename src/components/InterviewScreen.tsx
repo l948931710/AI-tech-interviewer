@@ -244,7 +244,7 @@ export function InterviewScreen({
           <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full aura-gradient opacity-[0.07] blur-[150px]"></div>
         </div>
         <div className="relative z-10 flex flex-col items-center gap-6 px-6 text-center">
-          <div className="size-16 rounded-full glass-panel flex items-center justify-center border border-primary/30 shadow-[0_0_25px_rgba(0,240,255,0.2)]">
+          <div className="size-16 rounded-full glass-panel flex items-center justify-center border border-primary/30 shadow-[0_0_25px_rgba(198,242,78,0.2)]">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>
           <AnimatePresence mode="wait">
@@ -324,10 +324,10 @@ export function InterviewScreen({
               return (
                 <div key={idx} className="relative flex flex-col items-center gap-2 group cursor-default">
                   {isCompleted ? (
-                    <div className="size-4 rounded-full aura-gradient flex items-center justify-center ring-4 ring-background relative z-10 transition-colors duration-300 shadow-[0_0_10px_rgba(0,240,255,0.4)]">
+                    <div className="size-4 rounded-full aura-gradient flex items-center justify-center ring-4 ring-background relative z-10 transition-colors duration-300 shadow-[0_0_10px_rgba(198,242,78,0.4)]">
                     </div>
                   ) : isCurrent ? (
-                    <div className="size-4 rounded-full bg-transparent border-2 border-primary flex items-center justify-center ring-4 ring-background relative z-10 transition-colors duration-300 shadow-[0_0_15px_rgba(0,240,255,0.6)]">
+                    <div className="size-4 rounded-full bg-transparent border-2 border-primary flex items-center justify-center ring-4 ring-background relative z-10 transition-colors duration-300 shadow-[0_0_15px_rgba(198,242,78,0.6)]">
                       <div className="size-1.5 rounded-full bg-primary animate-pulse"></div>
                     </div>
                   ) : (
@@ -364,7 +364,7 @@ export function InterviewScreen({
               <p className="text-xs text-white/50">{isZh ? '候选人编号' : 'Candidate ID'}: {candidateId}</p>
             )}
           </div>
-          <div className="size-10 rounded-full glass-panel flex items-center justify-center border border-primary/30 overflow-hidden text-primary font-display font-bold shadow-[0_0_15px_rgba(0,240,255,0.15)]">
+          <div className="size-10 rounded-full glass-panel flex items-center justify-center border border-primary/30 overflow-hidden text-primary font-display font-bold shadow-[0_0_15px_rgba(198,242,78,0.15)]">
             {candidateInfo.name.charAt(0)}
           </div>
           <button 
@@ -380,12 +380,12 @@ export function InterviewScreen({
       <main className="flex-1 flex flex-col items-center justify-center relative px-6 overflow-hidden">
         
         {/* Status Indicator */}
-        <div className={`mb-8 flex items-center gap-3 px-5 py-2.5 rounded-full transition-all duration-500 glass-panel border-primary/20 shadow-[0_0_20px_rgba(0,240,255,0.1)] ${
+        <div className={`mb-8 flex items-center gap-3 px-5 py-2.5 rounded-full transition-all duration-500 glass-panel border-primary/20 shadow-[0_0_20px_rgba(198,242,78,0.1)] ${
           isAiSpeaking ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
         }`}>
           <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-[pulse_1s_ease-in-out_infinite]"></span>
-            <span className="w-1.5 h-1.5 rounded-full bg-[#b026ff] animate-[pulse_1s_ease-in-out_0.2s_infinite]"></span>
+            <span className="w-1.5 h-1.5 rounded-full bg-[#e8e6e1] animate-[pulse_1s_ease-in-out_0.2s_infinite]"></span>
             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-[pulse_1s_ease-in-out_0.4s_infinite]"></span>
           </div>
           <span className="text-[11px] font-bold uppercase tracking-widest text-white/90">Aura is Speaking</span>

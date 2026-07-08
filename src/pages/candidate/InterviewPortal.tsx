@@ -851,7 +851,7 @@ export default function InterviewPortal() {
           {portalError.canRetry && errorRetry ? (
             <button
               onClick={() => errorRetry()}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm tracking-wide bg-white text-background hover:shadow-[0_0_30px_rgba(0,240,255,0.3)] transition-all"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm tracking-wide bg-white text-background hover:shadow-[0_0_30px_rgba(198,242,78,0.3)] transition-all"
             >
               <RefreshCw size={16} />
               {isZh ? '重试' : 'Retry'}
@@ -896,7 +896,7 @@ export default function InterviewPortal() {
         </div>
         <div className="glass-panel p-10 md:p-14 rounded-3xl max-w-lg w-full flex flex-col items-center relative z-10 animate-[fadeIn_0.6s_ease-out]">
           <div className="absolute top-0 left-0 right-0 h-[1px] aura-gradient opacity-50"></div>
-          <div className="w-20 h-20 rounded-full bg-white/5 border border-primary/20 flex items-center justify-center mb-8 shadow-[0_0_40px_rgba(0,240,255,0.15)]">
+          <div className="w-20 h-20 rounded-full bg-white/5 border border-primary/20 flex items-center justify-center mb-8 shadow-[0_0_40px_rgba(198,242,78,0.15)]">
             <RefreshCw size={36} className="text-primary" />
           </div>
           <h1 className="text-3xl md:text-4xl font-bold font-display mb-4 tracking-tight">
@@ -932,7 +932,7 @@ export default function InterviewPortal() {
             className={`w-full py-4 rounded-xl font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-3 transition-all duration-300 ${
               resumeLoading
                 ? 'bg-white/5 border border-white/10 text-white/50 cursor-not-allowed'
-                : 'bg-white text-background cursor-pointer hover:shadow-[0_0_30px_rgba(0,240,255,0.3)]'
+                : 'bg-white text-background cursor-pointer hover:shadow-[0_0_30px_rgba(198,242,78,0.3)]'
             }`}
           >
             {resumeLoading ? (
@@ -1192,7 +1192,7 @@ export default function InterviewPortal() {
                       className={`w-full mt-8 py-4 rounded-xl font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-3 transition-all duration-500 relative overflow-hidden group ${
                         systemCheckFailed || beginLoading
                           ? 'bg-white/5 border border-white/10 text-white/50 cursor-not-allowed'
-                          : 'bg-white text-background cursor-pointer hover:shadow-[0_0_30px_rgba(0,240,255,0.3)]'
+                          : 'bg-white text-background cursor-pointer hover:shadow-[0_0_30px_rgba(198,242,78,0.3)]'
                       }`}
                     >
                       {!systemCheckFailed && !beginLoading && (

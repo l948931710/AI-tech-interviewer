@@ -43,7 +43,7 @@ export default function SetupScreen({ onStart, isLoading }: SetupScreenProps) {
     >
       <div className="text-center mb-12 relative">
         <div className="inline-flex items-center justify-center mb-4">
-          <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shadow-[0_0_30px_rgba(0,240,255,0.2)]">
+          <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shadow-[0_0_30px_rgba(198,242,78,0.2)]">
             <Briefcase className="text-primary w-8 h-8" />
           </div>
         </div>
@@ -61,7 +61,7 @@ export default function SetupScreen({ onStart, isLoading }: SetupScreenProps) {
           <div className="glass-panel p-8 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent"></div>
             <div className="flex items-center gap-4 mb-6">
-              <div className="p-3 bg-white/5 rounded-xl border border-white/10 text-primary shadow-[inset_0_0_15px_rgba(0,240,255,0.1)] group-hover:bg-primary/10 transition-colors">
+              <div className="p-3 bg-white/5 rounded-xl border border-white/10 text-primary shadow-[inset_0_0_15px_rgba(198,242,78,0.1)] group-hover:bg-primary/10 transition-colors">
                 <FileText size={24} />
               </div>
               <div>
@@ -122,9 +122,9 @@ export default function SetupScreen({ onStart, isLoading }: SetupScreenProps) {
 
           {/* Job Description */}
           <div className="glass-panel p-8 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 relative overflow-hidden group">
-            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#b026ff]/50 to-transparent"></div>
+            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#c6f24e]/50 to-transparent"></div>
             <div className="flex items-center gap-4 mb-6">
-              <div className="p-3 bg-white/5 rounded-xl border border-white/10 text-[#b026ff] shadow-[inset_0_0_15px_rgba(176,38,255,0.1)] group-hover:bg-[#b026ff]/10 transition-colors">
+              <div className="p-3 bg-white/5 rounded-xl border border-white/10 text-[#c6f24e] shadow-[inset_0_0_15px_rgba(198,242,78,0.1)] group-hover:bg-[#c6f24e]/10 transition-colors">
                 <Briefcase size={24} />
               </div>
               <div>
@@ -138,7 +138,7 @@ export default function SetupScreen({ onStart, isLoading }: SetupScreenProps) {
               <textarea
                 value={jdText}
                 onChange={(e) => setJdText(e.target.value)}
-                className="flex-1 w-full min-h-[300px] p-4 bg-black/40 border border-white/10 rounded-xl focus:ring-1 focus:ring-[#b026ff] focus:border-[#b026ff] transition-all resize-none text-[13px] text-white/80 placeholder:text-white/20 outline-none font-mono leading-relaxed"
+                className="flex-1 w-full min-h-[300px] p-4 bg-black/40 border border-white/10 rounded-xl focus:ring-1 focus:ring-[#c6f24e] focus:border-[#c6f24e] transition-all resize-none text-[13px] text-white/80 placeholder:text-white/20 outline-none font-mono leading-relaxed"
                 placeholder="Paste the job description, core requirements, expected competencies, and technical stack here..."
                 required
               />
@@ -150,7 +150,7 @@ export default function SetupScreen({ onStart, isLoading }: SetupScreenProps) {
           <button
             type="submit"
             disabled={(!resumeText && !resumeFile) || !jdText || isLoading}
-            className="flex items-center gap-3 px-10 py-5 aura-gradient text-background rounded-xl font-bold text-[14px] uppercase tracking-widest hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_30px_rgba(0,240,255,0.3)] disabled:shadow-none"
+            className="flex items-center gap-3 px-10 py-5 aura-gradient text-background rounded-xl font-bold text-[14px] uppercase tracking-widest hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_30px_rgba(198,242,78,0.3)] disabled:shadow-none"
           >
             {isLoading ? (
               <>

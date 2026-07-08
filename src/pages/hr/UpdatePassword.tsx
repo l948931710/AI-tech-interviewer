@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Eye, ArrowRight, ShieldCheck, EyeOff } from 'lucide-react';
+import { Lock, Eye, ArrowRight, ShieldCheck, EyeOff, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 export default function UpdatePassword() {
@@ -87,12 +87,16 @@ export default function UpdatePassword() {
     navigate('/hr/dashboard');
   };
 
+  const inputBase =
+    'w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 pr-12 text-[14px] focus:border-primary focus:ring-1 focus:ring-primary/40 transition-all outline-none text-white placeholder:text-white/25';
+
   // Guard: Show loading while verifying session
   if (hasValidSession === null) {
     return (
-      <div className="bg-background text-white min-h-screen flex items-center justify-center font-body">
-        <div className="text-center">
-          <div className="text-2xl font-bold tracking-tight font-display aura-gradient-text mb-4 animate-pulse">AURA</div>
+      <div className="bg-background text-white min-h-[100dvh] flex items-center justify-center font-body">
+        <div className="text-center flex flex-col items-center gap-4">
+          <Loader2 className="w-7 h-7 text-primary animate-spin" />
+          <div className="text-xl font-bold tracking-tight font-display">AURA</div>
           <p className="text-white/50 text-[13px] tracking-wide">{authStatusMsg}</p>
         </div>
       </div>
@@ -102,137 +106,126 @@ export default function UpdatePassword() {
   // Guard: No valid session — block access
   if (hasValidSession === false) {
     return (
-      <div className="bg-background text-white min-h-screen flex items-center justify-center font-body">
-        <div className="text-center max-w-md px-6">
-          <div className="inline-flex items-center justify-center p-4 bg-red-500/10 border border-red-500/20 rounded-xl mb-4">
-            <ShieldCheck className="text-red-400 w-9 h-9" />
+      <div className="bg-background text-white min-h-[100dvh] flex items-center justify-center font-body p-6">
+        <div className="glass-panel rounded-2xl p-10 max-w-md text-center relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-error/50 to-transparent" />
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-error/10 border border-error/25 rounded-2xl mb-5">
+            <ShieldCheck className="text-error w-7 h-7" />
           </div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-white mb-2">Access Denied</h1>
-          <p className="font-body text-sm text-white/60 mb-6">
-            This link is invalid or expired — please request a new one from the sign-in page. If you followed
-            an email link, open it in a browser rather than inside the email app.
+          <h1 className="font-display text-2xl font-bold tracking-tight mb-3">Access denied</h1>
+          <p className="text-sm text-white/60 leading-relaxed mb-5">
+            This link is invalid or expired — please request a new one from the sign-in page. If you followed an
+            email link, open it in a browser rather than inside the email app.
           </p>
-          <p className="font-body text-[10px] text-white/30 uppercase tracking-wider">{authStatusMsg}</p>
+          <p className="text-[10px] text-white/30 uppercase tracking-wider">{authStatusMsg}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-background text-white min-h-screen flex flex-col font-body relative overflow-hidden">
-
-      {/* Background Effects */}
-      <div className="absolute inset-0 z-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full aura-gradient opacity-[0.05] blur-[150px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full aura-gradient opacity-[0.05] blur-[150px]"></div>
-      </div>
-
-      {/* Shared TopNavBar */}
-      <nav className="fixed top-0 w-full z-50 flex justify-between items-center px-8 py-6 bg-background/50 backdrop-blur-md border-b border-white/5">
-        <div className="text-2xl font-bold tracking-tight font-display aura-gradient-text">AURA</div>
-        <div className="flex items-center gap-6">
-          <div className="hidden md:flex gap-8 text-[13px] tracking-wide font-medium">
-            <span className="text-white/50 hover:text-white cursor-pointer transition-colors">Portal Home</span>
-            <span className="text-white/50 hover:text-white cursor-pointer transition-colors">Employee Guidelines</span>
-          </div>
+    <div className="min-h-[100dvh] bg-background text-white font-body grid lg:grid-cols-2 relative overflow-hidden">
+      {/* ---- Left: brand panel (desktop only) ------------------------------- */}
+      <aside className="hidden lg:flex flex-col justify-between p-12 relative overflow-hidden border-r border-white/5">
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <div className="absolute -top-[10%] -left-[10%] w-[70%] h-[70%] rounded-full bg-primary/10 blur-[150px] animate-[auroraDrift_20s_ease-in-out_infinite]" />
         </div>
-      </nav>
+        <div className="relative z-10 flex items-center gap-2.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-primary shadow-[0_0_14px_rgba(198,242,78,0.7)]" />
+          <span className="text-xl font-display font-bold tracking-tight">AURA</span>
+        </div>
+        <div className="relative z-10 max-w-md">
+          <h1 className="font-display font-bold tracking-tight leading-[1.05] text-5xl xl:text-[3.5rem] mb-6">
+            Set a new
+            <br />
+            <span className="text-primary">passcode.</span>
+          </h1>
+          <p className="text-white/55 text-lg leading-relaxed max-w-sm">
+            Choose a strong passcode. You'll use it every time you sign in to the Command Center.
+          </p>
+        </div>
+        <div className="relative z-10 flex items-center gap-2 text-white/35">
+          <ShieldCheck className="w-4 h-4" />
+          <span className="text-[10px] uppercase tracking-[0.2em]">End-to-end encrypted session</span>
+        </div>
+      </aside>
 
-      <main className="flex-grow flex items-center justify-center px-4 relative z-10 pt-20">
-        {/* Update Password Container */}
-        <div className="w-full max-w-[420px] animate-[fadeIn_0.6s_ease-out]">
-
-          {/* Branding Header */}
-          <div className="text-center mb-10">
-            <h1 className="font-display text-4xl font-bold tracking-tight text-white mb-2">Update Password</h1>
-            <p className="font-body text-[11px] font-bold uppercase tracking-[0.2em] text-primary/70">Secure your HR Account</p>
+      {/* ---- Right: form card --------------------------------------------- */}
+      <main className="flex items-center justify-center px-6 py-14 relative">
+        <div className="w-full max-w-[400px] animate-[fadeIn_0.6s_ease-out]">
+          <div className="flex lg:hidden items-center gap-2.5 justify-center mb-10">
+            <span className="w-2.5 h-2.5 rounded-full bg-primary shadow-[0_0_14px_rgba(198,242,78,0.7)]" />
+            <span className="text-xl font-display font-bold tracking-tight">AURA</span>
           </div>
 
-          {/* Form Card */}
-          <div className="glass-panel rounded-2xl p-8 md:p-10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-[1px] aura-gradient opacity-50"></div>
+          <div className="mb-8">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-primary/80 mb-2">Secure your account</p>
+            <h2 className="font-display text-3xl font-bold tracking-tight">Update password</h2>
+          </div>
 
-            <form className="space-y-6" onSubmit={handleUpdate}>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-white/50 block ml-1">
-                  New Password
-                </label>
-                <div className="relative group">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-5 h-5 group-focus-within:text-primary transition-colors" />
-                  <input
-                    required
-                    value={password}
-                    onChange={(e) => { setPassword(e.target.value); setError(''); }}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 pr-12 text-[14px] focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none text-white placeholder:text-white/20 font-light"
-                    placeholder="••••••••"
-                    type={showPassword ? 'text' : 'password'}
-                    minLength={6}
-                  />
-                  <div
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 cursor-pointer hover:text-primary transition-colors flex items-center"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-white/50 block ml-1">
-                  Confirm Password
-                </label>
-                <div className="relative group">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-5 h-5 group-focus-within:text-primary transition-colors" />
-                  <input
-                    required
-                    value={confirmPassword}
-                    onChange={(e) => { setConfirmPassword(e.target.value); setError(''); }}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 pr-12 text-[14px] focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none text-white placeholder:text-white/20 font-light"
-                    placeholder="••••••••"
-                    type={showPassword ? 'text' : 'password'}
-                    minLength={6}
-                  />
-                </div>
-              </div>
-
-              {error && (
-                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-                  <p className="text-red-400 text-xs font-medium text-center">{error}</p>
-                </div>
-              )}
-
-              <div className="pt-4">
+          <form className="glass-panel rounded-2xl p-8 relative overflow-hidden edge-accent space-y-6" onSubmit={handleUpdate}>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-white/50 block ml-1">New password</label>
+              <div className="relative group">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-5 h-5 group-focus-within:text-primary transition-colors" />
+                <input
+                  required
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError(''); }}
+                  className={inputBase}
+                  placeholder="••••••••"
+                  type={showPassword ? 'text' : 'password'}
+                  minLength={6}
+                />
                 <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full h-14 aura-gradient text-background font-bold text-[13px] tracking-widest uppercase rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.3)]"
+                  type="button"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-primary transition-colors flex items-center"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  <span>{isSubmitting ? 'Updating...' : 'Set Password'}</span>
-                  {!isSubmitting && <ArrowRight className="w-4 h-4" />}
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-            </form>
-          </div>
+            </div>
 
-          {/* Security Notice */}
-          <div className="mt-8 flex items-center justify-center gap-2 text-white/30">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-white/50 block ml-1">Confirm password</label>
+              <div className="relative group">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-5 h-5 group-focus-within:text-primary transition-colors" />
+                <input
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setError(''); }}
+                  className={inputBase}
+                  placeholder="••••••••"
+                  type={showPassword ? 'text' : 'password'}
+                  minLength={6}
+                />
+              </div>
+            </div>
+
+            {error && (
+              <div className="bg-error/10 border border-error/25 rounded-lg p-3">
+                <p className="text-error text-xs font-medium text-center">{error}</p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full h-13 py-4 bg-primary text-background font-bold text-[13px] tracking-widest uppercase rounded-xl hover:bg-[#b6e63a] active:translate-y-px transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span>{isSubmitting ? 'Updating…' : 'Set password'}</span>
+              {!isSubmitting && <ArrowRight className="w-4 h-4" />}
+            </button>
+          </form>
+
+          <div className="mt-8 flex lg:hidden items-center justify-center gap-2 text-white/30">
             <ShieldCheck className="w-4 h-4" />
-            <span className="text-[10px] uppercase tracking-[0.2em]">End-to-End Encrypted Session</span>
+            <span className="text-[10px] uppercase tracking-[0.2em]">End-to-end encrypted session</span>
           </div>
         </div>
       </main>
-
-      {/* Shared Footer Component */}
-      <footer className="relative z-10 flex justify-between items-center px-8 py-6">
-        <div className="text-[10px] uppercase tracking-[0.1em] text-white/30">
-          © {new Date().getFullYear()} AURA SYSTEM. SECURE TERMINAL.
-        </div>
-        <div className="flex gap-6 text-[10px] uppercase tracking-[0.1em] text-white/30">
-          <a className="hover:text-primary transition-colors" href="#">Security Protocol</a>
-          <a className="hover:text-primary transition-colors" href="#">Terms</a>
-        </div>
-      </footer>
     </div>
   );
 }

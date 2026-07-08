@@ -29,7 +29,7 @@ export default function ThankYouScreen() {
         <div className={`w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-10 border ${
           isEarlyEnd
             ? 'border-amber-400/30 shadow-[0_0_50px_rgba(251,191,36,0.12)]'
-            : 'border-primary/20 shadow-[0_0_50px_rgba(0,240,255,0.15)]'
+            : 'border-primary/20 shadow-[0_0_50px_rgba(198,242,78,0.15)]'
         }`}>
           {isEarlyEnd
             ? <PauseCircle size={48} className="text-amber-400" />
@@ -63,7 +63,7 @@ export default function ThankYouScreen() {
             {resumeLink && (
               <a
                 href={resumeLink}
-                className="mt-8 inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm tracking-wide bg-white text-background hover:shadow-[0_0_30px_rgba(0,240,255,0.3)] transition-all"
+                className="mt-8 inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm tracking-wide bg-white text-background hover:shadow-[0_0_30px_rgba(198,242,78,0.3)] transition-all"
               >
                 {t('返回并继续面试', 'Return and resume interview')}
                 <ArrowRight size={16} />

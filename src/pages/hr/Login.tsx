@@ -80,113 +80,139 @@ export default function Login() {
     navigate('/hr/dashboard');
   };
 
+  const inputBase =
+    'w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 pr-4 text-[14px] focus:border-primary focus:ring-1 focus:ring-primary/40 transition-all outline-none text-white placeholder:text-white/25';
+
   return (
-    <div className="bg-background text-white min-h-screen flex flex-col font-body relative overflow-hidden">
-      
-      {/* Background Effects */}
-      <div className="absolute inset-0 z-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full aura-gradient opacity-[0.05] blur-[150px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full aura-gradient opacity-[0.05] blur-[150px]"></div>
-      </div>
-
-      {/* Shared TopNavBar */}
-      <nav className="fixed top-0 w-full z-50 flex justify-between items-center px-8 py-6 bg-background/50 backdrop-blur-md border-b border-white/5">
-        <div className="text-2xl font-bold tracking-tight font-display aura-gradient-text">AURA</div>
-        <div className="flex items-center gap-6">
-          <div className="hidden md:flex gap-8 text-[13px] tracking-wide font-medium">
-            <span className="text-white/50 hover:text-white cursor-pointer transition-colors">Portal Home</span>
-            <span className="text-white/50 hover:text-white cursor-pointer transition-colors">Employee Guidelines</span>
-          </div>
+    <div className="min-h-[100dvh] bg-background text-white font-body grid lg:grid-cols-2 relative overflow-hidden">
+      {/* ---- Left: brand panel (desktop only) ------------------------------- */}
+      <aside className="hidden lg:flex flex-col justify-between p-12 relative overflow-hidden border-r border-white/5">
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <div className="absolute -top-[10%] -left-[10%] w-[70%] h-[70%] rounded-full bg-primary/10 blur-[150px] animate-[auroraDrift_20s_ease-in-out_infinite]" />
+          <div className="absolute bottom-[-15%] left-[20%] w-[50%] h-[50%] rounded-full bg-primary/[0.05] blur-[140px]" />
         </div>
-      </nav>
 
-      <main className="flex-grow flex items-center justify-center px-4 relative z-10 pt-20">
-        {/* Login Container */}
-        <div className="w-full max-w-[420px] animate-[fadeIn_0.6s_ease-out]">
-          
-          {/* Branding Header */}
-          <div className="text-center mb-10">
-            <h1 className="font-display text-4xl font-bold tracking-tight text-white mb-2">Command Center</h1>
-            <p className="font-body text-[11px] font-bold uppercase tracking-[0.2em] text-primary/70">Human Resources Gateway</p>
+        <div className="relative z-10 flex items-center gap-2.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-primary shadow-[0_0_14px_rgba(198,242,78,0.7)]" />
+          <span className="text-xl font-display font-bold tracking-tight">AURA</span>
+        </div>
+
+        <div className="relative z-10 max-w-md">
+          <h1 className="font-display font-bold tracking-tight leading-[1.05] text-5xl xl:text-[3.5rem] mb-6">
+            Structured interviews.
+            <br />
+            <span className="text-primary">Evidence-scored</span> reports.
+          </h1>
+          <p className="text-white/55 text-lg leading-relaxed mb-10 max-w-sm">
+            Sign in to launch sessions, track candidates, and read the reports your team acts on.
+          </p>
+
+          <ul className="space-y-4">
+            {[
+              'Adaptive, claim-by-claim questioning',
+              'Six-dimension evidence scoring',
+              'Decision-ready reports in one click',
+            ].map((item) => (
+              <li key={item} className="flex items-center gap-3 text-white/70 text-[15px]">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="relative z-10 flex items-center gap-2 text-white/35">
+          <ShieldCheck className="w-4 h-4" />
+          <span className="text-[10px] uppercase tracking-[0.2em]">AES-256 encrypted connection</span>
+        </div>
+      </aside>
+
+      {/* ---- Right: auth card ---------------------------------------------- */}
+      <main className="flex items-center justify-center px-6 py-14 relative">
+        <div className="w-full max-w-[400px] animate-[fadeIn_0.6s_ease-out]">
+          {/* Compact wordmark for mobile */}
+          <div className="flex lg:hidden items-center gap-2.5 justify-center mb-10">
+            <span className="w-2.5 h-2.5 rounded-full bg-primary shadow-[0_0_14px_rgba(198,242,78,0.7)]" />
+            <span className="text-xl font-display font-bold tracking-tight">AURA</span>
           </div>
 
-          {/* Login Card */}
-          <div className="glass-panel rounded-2xl p-8 md:p-10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-[1px] aura-gradient opacity-50"></div>
+          <div className="mb-8">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-primary/80 mb-2">
+              Human resources gateway
+            </p>
+            <h2 className="font-display text-3xl font-bold tracking-tight">
+              {recoverMode ? (recoverSent ? 'Check your email' : 'Recover access') : 'Command Center'}
+            </h2>
+          </div>
 
-            {recoverMode ? (
-              recoverSent ? (
-                <div className="text-center py-4 space-y-4">
-                  <div className="inline-flex items-center justify-center p-4 bg-primary/10 rounded-xl">
-                    <MailCheck className="text-primary w-9 h-9" />
+          {recoverMode ? (
+            recoverSent ? (
+              <div className="glass-panel rounded-2xl p-8 relative overflow-hidden edge-accent space-y-5">
+                <div className="inline-flex items-center justify-center w-12 h-12 bg-primary/10 border border-primary/20 rounded-xl">
+                  <MailCheck className="text-primary w-6 h-6" />
+                </div>
+                <p className="text-white/60 text-[14px] leading-relaxed">
+                  If an account exists for <span className="text-white">{recoverEmail}</span>, we've sent a link to
+                  reset your passcode. Open it in a browser to set a new one.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setRecoverMode(false)}
+                  className="text-[11px] font-bold uppercase tracking-wider text-primary hover:text-white transition-colors"
+                >
+                  Back to sign in
+                </button>
+              </div>
+            ) : (
+              <form className="glass-panel rounded-2xl p-8 relative overflow-hidden edge-accent space-y-6" onSubmit={handleRecover}>
+                <p className="text-white/55 text-[13px] leading-relaxed">
+                  Enter your email and we'll send a reset link.
+                </p>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/50 block ml-1">
+                    System ID / Email
+                  </label>
+                  <div className="relative group">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-5 h-5 group-focus-within:text-primary transition-colors" />
+                    <input
+                      required
+                      autoFocus
+                      value={recoverEmail}
+                      onChange={(e) => { setRecoverEmail(e.target.value); setRecoverError(''); }}
+                      className={inputBase}
+                      placeholder="e.g. hr@aura.dev"
+                      type="email"
+                    />
                   </div>
-                  <h2 className="font-display text-xl font-bold text-white">Check your email</h2>
-                  <p className="text-white/60 text-[13px] font-light leading-relaxed">
-                    If an account exists for <span className="text-white/80">{recoverEmail}</span>, we've sent a
-                    link to reset your passcode. Open it in a browser to set a new one.
-                  </p>
+                </div>
+
+                {recoverError && (
+                  <div className="bg-error/10 border border-error/25 rounded-lg p-3">
+                    <p className="text-error text-xs font-medium text-center">{recoverError}</p>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <button
+                    type="submit"
+                    disabled={isRecovering}
+                    className="w-full h-13 py-4 bg-primary text-background font-bold text-[13px] tracking-widest uppercase rounded-xl hover:bg-[#b6e63a] active:translate-y-px transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>{isRecovering ? 'Sending…' : 'Send reset link'}</span>
+                    {!isRecovering && <ArrowRight className="w-4 h-4" />}
+                  </button>
                   <button
                     type="button"
                     onClick={() => setRecoverMode(false)}
-                    className="text-[10px] font-bold uppercase tracking-wider text-primary/80 hover:text-primary transition-colors"
+                    className="w-full text-center text-[10px] font-bold uppercase tracking-wider text-white/40 hover:text-white transition-colors"
                   >
                     Back to sign in
                   </button>
                 </div>
-              ) : (
-                <form className="space-y-6" onSubmit={handleRecover}>
-                  <div className="text-center space-y-1">
-                    <h2 className="font-display text-xl font-bold text-white">Recover Access</h2>
-                    <p className="text-white/50 text-[12px] font-light">
-                      Enter your email and we'll send a reset link.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-white/50 block ml-1">
-                      System ID / Email
-                    </label>
-                    <div className="relative group">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-5 h-5 group-focus-within:text-primary transition-colors" />
-                      <input
-                        required
-                        autoFocus
-                        value={recoverEmail}
-                        onChange={(e) => { setRecoverEmail(e.target.value); setRecoverError(''); }}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 pr-4 text-[14px] focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none text-white placeholder:text-white/20 font-light"
-                        placeholder="e.g. hr@aura.dev"
-                        type="email"
-                      />
-                    </div>
-                  </div>
-
-                  {recoverError && (
-                    <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-                      <p className="text-red-400 text-xs font-medium text-center">{recoverError}</p>
-                    </div>
-                  )}
-
-                  <div className="pt-2 space-y-3">
-                    <button
-                      type="submit"
-                      disabled={isRecovering}
-                      className="w-full h-14 aura-gradient text-background font-bold text-[13px] tracking-widest uppercase rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.3)]"
-                    >
-                      <span>{isRecovering ? 'Sending...' : 'Send Reset Link'}</span>
-                      {!isRecovering && <ArrowRight className="w-4 h-4" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRecoverMode(false)}
-                      className="w-full text-center text-[10px] font-bold uppercase tracking-wider text-white/40 hover:text-white transition-colors"
-                    >
-                      Back to sign in
-                    </button>
-                  </div>
-                </form>
-              )
-            ) : (
-            <form className="space-y-6" onSubmit={handleLogin}>
+              </form>
+            )
+          ) : (
+            <form className="glass-panel rounded-2xl p-8 relative overflow-hidden edge-accent space-y-6" onSubmit={handleLogin}>
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-white/50 block ml-1">
                   System ID / Email
@@ -197,7 +223,7 @@ export default function Login() {
                     required
                     value={employeeId}
                     onChange={(e) => { setEmployeeId(e.target.value); setError(''); }}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 pr-4 text-[14px] focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none text-white placeholder:text-white/20 font-light"
+                    className={inputBase}
                     placeholder="e.g. hr@aura.dev"
                     type="email"
                   />
@@ -206,15 +232,13 @@ export default function Login() {
 
               <div className="space-y-2">
                 <div className="flex justify-between items-center px-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/50">
-                    Passcode
-                  </label>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-white/50">Passcode</label>
                   <button
                     type="button"
                     onClick={openRecover}
                     className="text-[10px] font-bold uppercase tracking-wider text-primary/80 hover:text-primary transition-colors"
                   >
-                    Recover Access
+                    Recover access
                   </button>
                 </div>
                 <div className="relative group">
@@ -223,57 +247,44 @@ export default function Login() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3.5 pl-12 pr-12 text-[14px] focus:ring-1 focus:ring-primary focus:border-primary transition-all outline-none text-white placeholder:text-white/20 font-light"
+                    className={inputBase.replace('pr-4', 'pr-12')}
                     placeholder="••••••••"
                     type={showPassword ? 'text' : 'password'}
                   />
-                  <div 
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 cursor-pointer hover:text-primary transition-colors flex items-center"
+                  <button
+                    type="button"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-primary transition-colors flex items-center"
                     onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? 'Hide passcode' : 'Show passcode'}
                   >
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </div>
+                  </button>
                 </div>
               </div>
 
               {error && (
-                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-                  <p className="text-red-400 text-xs font-medium text-center">{error}</p>
+                <div className="bg-error/10 border border-error/25 rounded-lg p-3">
+                  <p className="text-error text-xs font-medium text-center">{error}</p>
                 </div>
               )}
 
-              <div className="pt-4">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full h-14 aura-gradient text-background font-bold text-[13px] tracking-widest uppercase rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.3)]"
-                >
-                  <span>{isSubmitting ? 'Authenticating...' : 'Initialize Session'}</span>
-                  {!isSubmitting && <ArrowRight className="w-4 h-4" />}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full h-13 py-4 bg-primary text-background font-bold text-[13px] tracking-widest uppercase rounded-xl hover:bg-[#b6e63a] active:translate-y-px transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span>{isSubmitting ? 'Authenticating…' : 'Initialize session'}</span>
+                {!isSubmitting && <ArrowRight className="w-4 h-4" />}
+              </button>
             </form>
-            )}
-          </div>
+          )}
 
-          {/* Security Notice */}
-          <div className="mt-8 flex items-center justify-center gap-2 text-white/30">
+          <div className="mt-8 flex lg:hidden items-center justify-center gap-2 text-white/30">
             <ShieldCheck className="w-4 h-4" />
-            <span className="text-[10px] uppercase tracking-[0.2em]">AES-256 Encrypted Connection</span>
+            <span className="text-[10px] uppercase tracking-[0.2em]">AES-256 encrypted connection</span>
           </div>
         </div>
       </main>
-
-      {/* Shared Footer Component */}
-      <footer className="relative z-10 flex justify-between items-center px-8 py-6">
-        <div className="text-[10px] uppercase tracking-[0.1em] text-white/30">
-          © {new Date().getFullYear()} AURA SYSTEM. SECURE TERMINAL.
-        </div>
-        <div className="flex gap-6 text-[10px] uppercase tracking-[0.1em] text-white/30">
-          <a className="hover:text-primary transition-colors" href="#">Security Protocol</a>
-          <a className="hover:text-primary transition-colors" href="#">Terms</a>
-        </div>
-      </footer>
     </div>
   );
 }

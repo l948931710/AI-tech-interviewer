@@ -15,7 +15,7 @@ export function Camera({ showCamera, hasVideo, videoRef }: CameraProps) {
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
-          className="absolute bottom-8 right-8 w-48 aspect-video rounded-xl overflow-hidden border-2 border-white dark:border-slate-800 shadow-2xl bg-slate-900 group z-30"
+          className="absolute bottom-8 right-8 w-48 aspect-video rounded-2xl overflow-hidden border border-white/15 shadow-2xl bg-black/60 group z-30"
         >
           <video 
             ref={videoRef} 
@@ -25,7 +25,7 @@ export function Camera({ showCamera, hasVideo, videoRef }: CameraProps) {
             className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
           />
           {!hasVideo && (
-            <div className="absolute inset-0 flex items-center justify-center text-white text-xs bg-slate-800">
+            <div className="absolute inset-0 flex items-center justify-center text-white/60 text-xs bg-[#131316]">
               Camera Off
             </div>
           )}

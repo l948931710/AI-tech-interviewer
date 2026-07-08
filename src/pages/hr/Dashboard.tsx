@@ -375,7 +375,7 @@ export default function Dashboard() {
   // ---- Shared render helpers ---------------------------------------------------
   const statusBadge = (status: InterviewStatus) => {
     const map: Record<string, [string, string]> = {
-      COMPLETED: ['Evaluated', 'bg-[#b026ff]/10 text-[#b026ff] border-[#b026ff]/20'],
+      COMPLETED: ['Evaluated', 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'],
       GENERATING: ['Analyzing', 'bg-purple-500/10 text-purple-400 border-purple-500/20'],
       INTERVIEW_ENDED: ['Pending Report', 'bg-blue-500/10 text-blue-400 border-blue-500/20'],
       IN_PROGRESS: ['In Progress', 'bg-primary/10 text-primary border-primary/20'],
@@ -421,7 +421,7 @@ export default function Dashboard() {
         className={`inline-flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg transition-colors border ${
           busy
             ? 'bg-white/5 text-white/30 border-white/10 cursor-not-allowed'
-            : 'text-primary bg-primary/10 hover:bg-primary/20 border-primary/30 shadow-[0_0_10px_rgba(0,240,255,0.1)]'
+            : 'text-primary bg-primary/10 hover:bg-primary/20 border-primary/30 shadow-[0_0_10px_rgba(198,242,78,0.1)]'
         }`}
       >
         {busy ? (<><Loader2 size={14} className="animate-spin" /> Analyzing...</>) : (<><FileText size={14} /> Run Analysis</>)}
@@ -564,7 +564,7 @@ export default function Dashboard() {
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto pb-4 mt-4">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'dashboard' ? 'bg-white/10 text-white shadow-[inset_2px_0_0_0_#00f0ff]' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'dashboard' ? 'bg-white/10 text-white shadow-[inset_2px_0_0_0_#c6f24e]' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
           >
             <LayoutDashboard size={18} className={activeTab === 'dashboard' ? 'text-primary' : ''} />
             Dashboard
@@ -572,7 +572,7 @@ export default function Dashboard() {
 
           <button
             onClick={() => setActiveTab('candidates')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'candidates' ? 'bg-white/10 text-white shadow-[inset_2px_0_0_0_#00f0ff]' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'candidates' ? 'bg-white/10 text-white shadow-[inset_2px_0_0_0_#c6f24e]' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
           >
             <Users size={18} className={activeTab === 'candidates' ? 'text-primary' : ''} />
             Candidates
@@ -580,7 +580,7 @@ export default function Dashboard() {
 
           <button
             onClick={() => setActiveTab('reports')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'reports' ? 'bg-white/10 text-white shadow-[inset_2px_0_0_0_#00f0ff]' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'reports' ? 'bg-white/10 text-white shadow-[inset_2px_0_0_0_#c6f24e]' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
           >
             <FileText size={18} className={activeTab === 'reports' ? 'text-primary' : ''} />
             Reports
@@ -684,7 +684,7 @@ export default function Dashboard() {
               </div>
               <Link
                 to="/hr/new"
-                className="aura-gradient text-background px-6 py-3 rounded-xl font-bold text-[13px] tracking-wider uppercase flex items-center gap-2 hover:opacity-90 shadow-[0_0_20px_rgba(0,240,255,0.2)] transition-all whitespace-nowrap"
+                className="aura-gradient text-background px-6 py-3 rounded-xl font-bold text-[13px] tracking-wider uppercase flex items-center gap-2 hover:opacity-90 shadow-[0_0_20px_rgba(198,242,78,0.2)] transition-all whitespace-nowrap"
               >
                 <Plus size={18} />
                 New Interview
@@ -707,13 +707,13 @@ export default function Dashboard() {
                         <p className="text-[11px] font-bold tracking-widest uppercase text-white/40 mb-2">Live Interviews</p>
                         <h3 className="text-4xl font-display font-bold text-white">{inProgressCount}</h3>
                       </div>
-                      <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10 group-hover:bg-white/10 transition-colors shadow-[0_0_15px_rgba(0,240,255,0.1)]">
+                      <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10 group-hover:bg-white/10 transition-colors shadow-[0_0_15px_rgba(198,242,78,0.1)]">
                         <Video className="text-primary" size={20} />
                       </div>
                     </div>
                     {inProgressCount > 0 ? (
                       <div className="mt-6 flex items-center gap-2 relative z-10">
-                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(0,240,255,0.8)]"></span>
+                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(198,242,78,0.8)]"></span>
                         <span className="text-[11px] font-bold tracking-wider uppercase text-primary">Live Now</span>
                       </div>
                     ) : (
@@ -744,18 +744,18 @@ export default function Dashboard() {
 
                   <button
                     onClick={() => { setReportFilter('COMPLETED'); setActiveTab('reports'); }}
-                    className="text-left glass-panel p-6 rounded-2xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-[#b026ff]/40 transition-colors"
+                    className="text-left glass-panel p-6 rounded-2xl border border-white/10 shadow-lg relative overflow-hidden group hover:border-emerald-500/40 transition-colors"
                   >
                     <div className="flex items-start justify-between relative z-10">
                       <div>
                         <p className="text-[11px] font-bold tracking-widest uppercase text-white/40 mb-2">Reports Ready</p>
                         <h3 className="text-4xl font-display font-bold text-white">{reportsReady}</h3>
                       </div>
-                      <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10 group-hover:bg-white/10 transition-colors shadow-[0_0_15px_rgba(176,38,255,0.1)]">
-                        <CheckSquare className="text-[#b026ff]" size={20} />
+                      <div className="w-12 h-12 bg-emerald-500/8 rounded-xl flex items-center justify-center border border-emerald-500/20 group-hover:bg-emerald-500/15 transition-colors">
+                        <CheckSquare className="text-emerald-400" size={20} />
                       </div>
                     </div>
-                    <div className="mt-6 flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-[#b026ff] relative z-10">
+                    <div className="mt-6 flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-emerald-400 relative z-10">
                       <TrendingUp size={14} />
                       Available for Review
                     </div>
@@ -828,16 +828,16 @@ export default function Dashboard() {
                         </div>
                         <div className="w-full bg-black/40 h-1.5 rounded-full overflow-hidden border border-white/5 relative">
                           <div className="absolute inset-0 bg-primary/20 blur-[2px]"></div>
-                          <div className="bg-primary h-full rounded-full transition-all duration-1000 relative z-10 shadow-[0_0_10px_rgba(0,240,255,0.8)]" style={{ width: `${sessions.length ? (inProgressCount / sessions.length) * 100 : 0}%` }}></div>
+                          <div className="bg-primary h-full rounded-full transition-all duration-1000 relative z-10 shadow-[0_0_10px_rgba(198,242,78,0.8)]" style={{ width: `${sessions.length ? (inProgressCount / sessions.length) * 100 : 0}%` }}></div>
                         </div>
                       </div>
                       <div className="space-y-3">
                         <div className="flex justify-between text-[11px] font-bold tracking-widest uppercase text-white/60">
-                          <span className="text-[#b026ff]">Evaluated</span>
-                          <span className="text-[#b026ff]">{sessions.length ? Math.round((reportsReady / sessions.length) * 100) : 0}%</span>
+                          <span className="text-emerald-400">Evaluated</span>
+                          <span className="text-emerald-400">{sessions.length ? Math.round((reportsReady / sessions.length) * 100) : 0}%</span>
                         </div>
                         <div className="w-full bg-black/40 h-1.5 rounded-full overflow-hidden border border-white/5 relative">
-                          <div className="bg-[#b026ff] h-full rounded-full transition-all duration-1000 relative z-10 shadow-[0_0_10px_rgba(176,38,255,0.8)]" style={{ width: `${sessions.length ? (reportsReady / sessions.length) * 100 : 0}%` }}></div>
+                          <div className="bg-emerald-400 h-full rounded-full transition-all duration-1000 relative z-10" style={{ width: `${sessions.length ? (reportsReady / sessions.length) * 100 : 0}%` }}></div>
                         </div>
                       </div>
                     </div>
