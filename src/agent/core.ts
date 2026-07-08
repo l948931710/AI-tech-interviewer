@@ -1,9 +1,9 @@
 import { supabase } from '../lib/supabase';
 
 export const MODELS = {
-  INTERVIEW: "gemini-3-flash-preview",
+  INTERVIEW: "gemini-3.5-flash",
   REPORT: "gemini-3.1-pro-preview",
-  TTS: "gemini-2.5-flash-preview-tts"
+  TTS: "gemini-3.1-flash-tts-preview"
 };
 
 /**

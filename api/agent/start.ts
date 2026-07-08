@@ -115,7 +115,7 @@ Rationale for probing: ${JSON.stringify(firstClaim.rationale)}`;
 
     try {
       streamResponse = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.5-flash",
         contents: userData,
         config: {
           systemInstruction: systemInstruction,
@@ -134,7 +134,7 @@ Rationale for probing: ${JSON.stringify(firstClaim.rationale)}`;
     } catch (llmError: any) {
       // Log the failed call before re-throwing
       logLLMUsage(supabaseAdmin, {
-        sessionId, endpoint: 'start', model: 'gemini-3-flash-preview',
+        sessionId, endpoint: 'start', model: 'gemini-3.5-flash',
         billingMode: 'text', latencyMs: Date.now() - llmStartTime,
         success: false, errorCode: llmError.message || 'LLM_ERROR'
       });
@@ -147,7 +147,7 @@ Rationale for probing: ${JSON.stringify(firstClaim.rationale)}`;
 
     // Fire-and-forget: log LLM usage (trigger auto-increments session counters)
     logLLMUsage(supabaseAdmin, {
-      sessionId, endpoint: 'start', model: 'gemini-3-flash-preview',
+      sessionId, endpoint: 'start', model: 'gemini-3.5-flash',
       billingMode: 'text', latencyMs: llmLatencyMs, success: true,
       ...usageMeta
     });

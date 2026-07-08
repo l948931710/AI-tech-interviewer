@@ -157,7 +157,7 @@ export default async function handler(req: Request) {
 
     const llmStartTime = Date.now();
     const streamResponse = await ai.models.generateContentStream({
-      model: "gemini-2.5-flash-preview-tts",
+      model: "gemini-3.1-flash-tts-preview",
       contents: [{ parts: [{ text: `${TTS_SYSTEM_PROMPT}\n\n${text}` }] }],
       config: {
         responseModalities: ["AUDIO"],
@@ -211,7 +211,7 @@ export default async function handler(req: Request) {
 
           // M11 fix: derive the completion (audio output) token count.
           // This is APPROXIMATE — we prefer real usageMetadata when present.
-          // gemini-2.5-flash-preview-tts returns 24kHz 16-bit mono PCM =
+          // gemini-3.1-flash-tts-preview returns 24kHz 16-bit mono PCM =
           // 48000 bytes/sec. We convert accumulated audio bytes to seconds and
           // multiply by a heuristic tokens-per-second constant so the output
           // cost (priced at $0.80 / 1M) is no longer billed as zero.
@@ -228,7 +228,7 @@ export default async function handler(req: Request) {
           if (supabaseAdmin && sessionId) {
             logLLMUsage(supabaseAdmin, {
               sessionId, endpoint: 'tts-stream',
-              model: 'gemini-2.5-flash-preview-tts', billingMode: 'tts_audio',
+              model: 'gemini-3.1-flash-tts-preview', billingMode: 'tts_audio',
               latencyMs: Date.now() - llmStartTime, success: true,
               promptTokenCount: estimatedPromptTokens,
               responseTokenCount: estCompletionTokens,
@@ -244,7 +244,7 @@ export default async function handler(req: Request) {
           if (supabaseAdmin && sessionId) {
             logLLMUsage(supabaseAdmin, {
               sessionId, endpoint: 'tts-stream',
-              model: 'gemini-2.5-flash-preview-tts', billingMode: 'tts_audio',
+              model: 'gemini-3.1-flash-tts-preview', billingMode: 'tts_audio',
               latencyMs: Date.now() - llmStartTime, success: false,
               errorCode: e.message || 'TTS_STREAM_ERROR',
               segmentIndex

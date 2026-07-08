@@ -382,7 +382,7 @@ ${safeAnswer}
 
     try {
       streamResponse = await ai.models.generateContentStream({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.5-flash",
         contents: userData,
         config: {
           systemInstruction: systemInstruction,
@@ -411,7 +411,7 @@ ${safeAnswer}
       });
     } catch (llmError: any) {
       logLLMUsage(supabaseAdmin, {
-        sessionId, requestId, endpoint: 'next-step', model: 'gemini-3-flash-preview',
+        sessionId, requestId, endpoint: 'next-step', model: 'gemini-3.5-flash',
         billingMode: 'text', latencyMs: Date.now() - llmStartTime,
         success: false, errorCode: llmError.message || 'LLM_ERROR'
       });
@@ -472,7 +472,7 @@ ${safeAnswer}
           const usageMeta = { promptTokenCount: Math.ceil(userData.length / 4), responseTokenCount: Math.ceil(finalJsonString.length / 4) }; 
 
           logLLMUsage(supabaseAdmin, {
-            sessionId, requestId, endpoint: 'next-step', model: 'gemini-3-flash-preview',
+            sessionId, requestId, endpoint: 'next-step', model: 'gemini-3.5-flash',
             billingMode: 'text', latencyMs: llmLatencyMs, success: true,
             ...usageMeta
           });

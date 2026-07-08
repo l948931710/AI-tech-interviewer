@@ -67,9 +67,9 @@ export default async function handler(req: Request) {
 
   // C2 fix: Only allow models that the system actively uses
   const ALLOWED_MODELS = new Set([
-    "gemini-3-flash-preview",
+    "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
-    "gemini-2.5-flash-preview-tts",
+    "gemini-3.1-flash-tts-preview",
   ]);
 
   try {

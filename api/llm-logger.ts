@@ -18,10 +18,10 @@ import { SupabaseClient } from "@supabase/supabase-js";
 // ---------------------------------------------------------------------------
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   // Text generation models
-  "gemini-3-flash-preview":        { input: 0.10,  output: 0.40  },
+  "gemini-3.5-flash":        { input: 0.10,  output: 0.40  },
   "gemini-3.1-pro-preview":        { input: 1.25,  output: 5.00  },
   // TTS model (audio output pricing differs from text)
-  "gemini-2.5-flash-preview-tts":  { input: 0.10,  output: 0.80  },
+  "gemini-3.1-flash-tts-preview":  { input: 0.10,  output: 0.80  },
 };
 
 // Fallback pricing for unknown models
