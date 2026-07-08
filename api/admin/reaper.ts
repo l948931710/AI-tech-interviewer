@@ -70,7 +70,15 @@ export default async function handler(req: Request) {
       reapedCount += idsToReapNull.length;
     }
 
-    return new Response(JSON.stringify({ message: `Successfully reaped ${reapedCount} stale session(s)` }), { 
+    // C4: prune expired rate-limit windows (older than 1 hour) so the table stays small.
+    try {
+      const rlCutoff = Math.floor(Date.now() / 1000) - 3600;
+      await supabaseAdmin.from('rate_limits').delete().lt('window_start', rlCutoff);
+    } catch (e) {
+      console.error('[Session Reaper] rate_limits cleanup failed (non-fatal):', e);
+    }
+
+    return new Response(JSON.stringify({ message: `Successfully reaped ${reapedCount} stale session(s)` }), {
       status: 200, 
       headers: { 'Content-Type': 'application/json' } 
     });

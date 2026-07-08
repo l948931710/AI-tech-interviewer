@@ -1,5 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
+import { createClient } from "@supabase/supabase-js";
 import { verifyAuth } from "./api-auth";
+import { underRateLimit, tooManyRequestsResponse, LIMITS } from "./rate-limit";
 
 /**
  * Streaming generate endpoint using Server-Sent Events (SSE).
@@ -50,6 +52,18 @@ export default async function handler(req: Request) {
   }
 
   console.log(`=== API/GENERATE (streaming) TRIGGERED by user ${auth.user.id} ===`);
+
+  // C4: per-HR-user rate limit on the generic completion proxy.
+  {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (supabaseUrl && supabaseServiceKey) {
+      const admin = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+      if (!(await underRateLimit(admin, `gen:${auth.user.id}`, LIMITS.generate.limit, LIMITS.generate.windowSeconds))) {
+        return tooManyRequestsResponse();
+      }
+    }
+  }
 
   // C2 fix: Only allow models that the system actively uses
   const ALLOWED_MODELS = new Set([

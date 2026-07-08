@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import { verifyAuth } from "./api-auth";
 import { logLLMUsage } from "./llm-logger";
+import { underRateLimit, tooManyRequestsResponse, LIMITS } from "./rate-limit";
 
 /**
  * Streaming TTS endpoint using Server-Sent Events (SSE).
@@ -85,13 +86,35 @@ export default async function handler(req: Request) {
       });
     }
 
-    // Prepare Supabase admin client for logging (only if sessionId provided)
+    // C4: bound per-call cost with a hard length cap (a spoken sentence is far shorter).
+    const MAX_TTS_TEXT_LENGTH = 800;
+    if (typeof text !== 'string' || text.length > MAX_TTS_TEXT_LENGTH) {
+      return new Response(JSON.stringify({ error: "Text too long" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    // C4: tie a candidate's TTS to their own session (defends against cross-session abuse).
+    if (auth.user.id.startsWith('candidate-') && sessionId && sessionId !== auth.user.id.replace('candidate-', '')) {
+      return new Response(JSON.stringify({ error: "Context mismatch" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    // Supabase admin client (needed for rate limiting + usage logging).
     let supabaseAdmin: any = null;
-    if (sessionId) {
-      const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      if (supabaseUrl && supabaseServiceKey) {
-        supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (supabaseUrl && supabaseServiceKey) {
+      supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+    }
+
+    // C4: per-session (or per-user) TTS rate limit — fails open if the limiter is down.
+    if (supabaseAdmin) {
+      const rlKey = `tts:${sessionId || auth.user.id}`;
+      if (!(await underRateLimit(supabaseAdmin, rlKey, LIMITS.tts.limit, LIMITS.tts.windowSeconds))) {
+        return tooManyRequestsResponse();
       }
     }
 

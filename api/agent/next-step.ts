@@ -2,6 +2,8 @@ import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import { verifyAuth } from "../api-auth";
 import { logLLMUsage, extractUsageMetadata } from "../llm-logger";
+import { underRateLimit, tooManyRequestsResponse, isSessionOverBudget, LIMITS } from "../rate-limit";
+import { detectNonAnswer, applyDecisionOverrides } from "./decision-engine";
 import { InterviewMemory, Claim } from "../../src/agent";
 
 export const config = { runtime: 'edge' };
@@ -35,6 +37,7 @@ export default async function handler(req: Request, ctx: any) {
   try {
     const { sessionId, answer, question, questionId, requestId, language = 'zh-CN' } = await req.json();
 
+    // Input validation (grafted from upstream): reject malformed payloads early.
     if (typeof sessionId !== 'string' || !sessionId) {
       return new Response(JSON.stringify({ error: "Missing or invalid sessionId" }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
@@ -46,19 +49,34 @@ export default async function handler(req: Request, ctx: any) {
       return new Response(JSON.stringify({ error: "Context mismatch" }), { status: 403 });
     }
 
+    // C1 fix: a stable requestId is the ONLY idempotency key. A missing/blank one would
+    // insert a NULL request_id row that can never be deduped, so reject it up front rather
+    // than silently persisting an un-idempotent turn.
+    if (!requestId || typeof requestId !== 'string') {
+      return new Response(JSON.stringify({ error: "Missing requestId" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    }
+
     const supabaseAdmin = getSupabaseAdmin();
-    const { data: sessionData, error: sessionError } = await supabaseAdmin
-      .from('interview_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
+    // Fetch session, claims, and transcript concurrently. These are independent
+    // reads; running them sequentially added ~2 remote round-trips (~1s locally)
+    // of dead time to every turn before the LLM call could even start.
+    // C4 fix: the per-session rate-limit check runs concurrently with the reads
+    // it would otherwise block, so it adds no latency to the turn.
+    const [sessionResult, claimsResult, transcriptResult, withinRate] = await Promise.all([
+      supabaseAdmin.from('interview_sessions').select('*').eq('id', sessionId).single(),
+      supabaseAdmin.from('session_claims').select('*').eq('session_id', sessionId).order('experience_name', { ascending: true, nullsFirst: false }).order('id', { ascending: true }),
+      supabaseAdmin.from('session_transcripts').select('*').eq('session_id', sessionId).order('timestamp', { ascending: true }),
+      underRateLimit(supabaseAdmin, `ns:${sessionId}`, LIMITS.nextStep.limit, LIMITS.nextStep.windowSeconds)
+    ]);
+    const { data: sessionData, error: sessionError } = sessionResult;
+    const { data: claimsData } = claimsResult;
+    const { data: transcriptData } = transcriptResult;
+
+    if (!withinRate) return tooManyRequestsResponse();
 
     if (sessionError || !sessionData) {
       return new Response(JSON.stringify({ error: "Session not found" }), { status: 404 });
     }
-
-    const { data: claimsData } = await supabaseAdmin.from('session_claims').select('*').eq('session_id', sessionId).order('experience_name', { ascending: true, nullsFirst: false }).order('id', { ascending: true });
-    const { data: transcriptData } = await supabaseAdmin.from('session_transcripts').select('*').eq('session_id', sessionId).order('timestamp', { ascending: true });
 
     const claims: Claim[] = (claimsData || []).map((row: any) => ({
       id: row.id,
@@ -123,43 +141,33 @@ async function handleIntroTurn(sessionId: string, answer: string, question: stri
     }
   }
 
-  // 1. Prepare async task to insert Intro turn and Update phase
-  const persistTask = async () => {
-    try {
-      const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
-        session_id: sessionId,
-        request_id: requestId,
-        question_id: questionId,
-        question: question, // the intro question
-        answer: answer,
-        turn_type: 'intro',
-        answer_status: 'answered',
-        decision: 'NEXT_CLAIM',
-        next_question: firstQuestion
-      });
+  // C1 fix: persist the intro turn + phase transition DURABLY before responding.
+  // The client advances (rotates requestId) on this response, so a dropped write would
+  // otherwise leave the session stuck in phase='intro' with the client already past it.
+  // Insert tolerates a 23505 unique_violation (session_id,request_id) as an idempotent
+  // retry; any other failure returns an error so the client retries the SAME requestId.
+  try {
+    const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
+      session_id: sessionId,
+      request_id: requestId,
+      question_id: questionId,
+      question: question, // the intro question
+      answer: answer,
+      turn_type: 'intro',
+      answer_status: 'answered',
+      decision: 'NEXT_CLAIM',
+      next_question: firstQuestion
+    });
 
-      if (insertError) {
-        console.error("DB Insert failed: " + insertError.message);
-      }
+    // 23505 = unique_violation → this requestId was already persisted; treat as success.
+    if (insertError && insertError.code !== '23505') throw insertError;
 
-      await supabaseAdmin.from('interview_sessions').update({ phase: 'technical' }).eq('id', sessionId);
-    } catch (e) {
-      console.error("Background persist failed", e);
-    }
-  };
-
-  // 2. Schedule in edge runtime background
-  if (ctx && ctx.waitUntil) {
-    ctx.waitUntil(persistTask());
-  } else {
-    persistTask().catch(e => console.error(e));
+    await supabaseAdmin.from('interview_sessions').update({ phase: 'technical' }).eq('id', sessionId);
+  } catch (e: any) {
+    console.error("[Next-Step] Intro turn persist failed:", e?.message || e);
+    return new Response(JSON.stringify({ error: "Failed to persist turn; please retry." }), { status: 503, headers: { "Content-Type": "application/json" } });
   }
 
-  // 4.7 CACHEABLE (deterministic turn): `firstQuestion` is precomputed at
-  // session creation and served on the fast JSON path here — no model call. Its
-  // TTS audio is identical for a given session and a future prewarm step can
-  // reuse it (see tts-stream.ts warmup path). Response shape must stay a plain
-  // JSON NextStep so the client degrades gracefully.
   return new Response(JSON.stringify({
     spokenQuestion: firstQuestion,
     nextQuestion: firstQuestion,
@@ -192,28 +200,46 @@ async function handleTechnicalTurn(sessionId: string, answer: string, question: 
   if (elapsedMs > HARD_LIMIT_MS) {
     const endMsg = language === 'zh-CN' ? "我们的面试时间已经结束了。感谢您的参与，再见。" : "Our interview time has concluded. Thank you, goodbye.";
     
-    // Prepare timeout state in background
-    const persistTimeout = async () => {
-      try {
-        await supabaseAdmin.from('session_transcripts').insert({
-          session_id: sessionId, question_id: questionId, question, answer, turn_type: 'closing',
-          answer_status: 'answered', decision: 'END_INTERVIEW', next_question: endMsg
-        });
-        await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
-      } catch (e) {
-        console.error("Background timeout persist failed", e);
-      }
-    };
-
-    if (ctx && ctx.waitUntil) {
-      ctx.waitUntil(persistTimeout());
-    } else {
-      persistTimeout().catch(e => console.error(e));
+    // C1 fix: persist the closing turn durably (await, carrying requestId for idempotency).
+    // This path is terminal — the client navigates away regardless — so a persist failure is
+    // logged but non-fatal; the reaper backstops any session left un-finalized.
+    try {
+      const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
+        session_id: sessionId, request_id: requestId, question_id: questionId, question, answer, turn_type: 'closing',
+        answer_status: 'answered', decision: 'END_INTERVIEW', next_question: endMsg
+      });
+      if (insertError && insertError.code !== '23505') throw insertError;
+      await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
+    } catch (e: any) {
+      console.error("[Next-Step] Timeout persist failed (non-fatal):", e?.message || e);
     }
-    
+
     return new Response(JSON.stringify({
       spokenQuestion: endMsg, nextQuestion: endMsg, answerStatus: 'answered', decision: 'END_INTERVIEW',
       followUpIntent: '', decisionRationale: 'SERVER_HARD_TIMEOUT', coveredPoints: [], missingPoints: []
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
+  // C4 fix: hard per-session cost ceiling. If this interview has blown its budget
+  // (abuse or a runaway loop), end it gracefully rather than keep billing — mirrors
+  // the 40-minute timeout path. isSessionOverBudget() also emits a structured
+  // billing-anomaly log line for log-based alerting.
+  if (isSessionOverBudget(sessionData)) {
+    const endMsg = language === 'zh-CN' ? "我们的面试到这里就结束了。感谢您的参与，再见。" : "That concludes our interview. Thank you for your time, goodbye.";
+    try {
+      const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
+        session_id: sessionId, request_id: requestId, question_id: questionId, question, answer, turn_type: 'closing',
+        answer_status: 'answered', decision: 'END_INTERVIEW', next_question: endMsg
+      });
+      if (insertError && insertError.code !== '23505') throw insertError;
+      await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
+    } catch (e: any) {
+      console.error("[Next-Step] Cost-ceiling persist failed (non-fatal):", e?.message || e);
+    }
+
+    return new Response(JSON.stringify({
+      spokenQuestion: endMsg, nextQuestion: endMsg, answerStatus: 'answered', decision: 'END_INTERVIEW',
+      followUpIntent: '', decisionRationale: 'SERVER_COST_CEILING', coveredPoints: [], missingPoints: []
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 
@@ -278,35 +304,17 @@ async function handleTechnicalTurn(sessionId: string, answer: string, question: 
 
   let parsed: any = null;
 
-  const trimmedAnswer = answer.trim();
-  // 4.7 CACHEABLE (deterministic turns): the fast-path fallback strings below
-  // (non-answer skip / graceful-end / first-non-answer) and the override
-  // strings in the streaming branch are STATIC per-language literals — no model
-  // call. They are already served on the fast JSON path (see the return at the
-  // end of this function). Their TTS is a fixed, finite set that a future
-  // prewarm/prerender step can cache and reuse; keep them as plain string
-  // literals so that stays trivial.
-  const NON_ANSWER_PATTERNS = /^(不知道|不清楚|不了解|没做过|没有|不会|不记得|不太清楚|不太了解|不太知道|我不知道|我不清楚|我不了解|我没做过|我不会|我不记得|没什么|没有了|就这些|说不上来|想不起来|pass|skip|i don'?t know|no idea|not sure|i'?m not sure)$/i;
-  
-  if (trimmedAnswer.length < 30 && NON_ANSWER_PATTERNS.test(trimmedAnswer)) {
-    const mustVerifyPoints = currentClaim.mustVerify || [];
-    if (consecutiveNonAnswers >= 1 || isGracefulEnd) {
-      if (nextClaim && !isGracefulEnd && memory.getConsecutiveFailedClaims() < 2) {
-        const fallbackQ = language === 'zh-CN'
-          ? `好的，关于这点我了解了。接下来我们聊聊你的另一段经历：${nextClaim.experienceName || '相关项目'}。关于"${nextClaim.claim}"，你能详细说说吗？`
-          : `Alright, I understand. Next, let's discuss another experience of yours: ${nextClaim.experienceName || 'a related project'}. Could you elaborate on "${nextClaim.claim}"?`;
-        parsed = { answerStatus: 'non_answer', decision: 'NEXT_CLAIM', nextQuestion: fallbackQ, spokenQuestion: fallbackQ, decisionRationale: '[FastPath] Skipping claim.', coveredPoints: previouslyCoveredPoints, missingPoints: mustVerifyPoints.filter((p: string) => !previouslyCoveredPoints.includes(p)) };
-      } else {
-        const fallbackQ = language === 'zh-CN'
-          ? "非常感谢你的回答。我们今天的面试就到此结束了。感谢你抽出时间与我交流。祝你生活愉快，再见！"
-          : "Thank you for your answers. We will conclude our interview here for today. Have a great day, goodbye!";
-        parsed = { answerStatus: 'non_answer', decision: 'END_INTERVIEW', nextQuestion: fallbackQ, spokenQuestion: fallbackQ, decisionRationale: '[FastPath] Ending interview.', coveredPoints: previouslyCoveredPoints, missingPoints: mustVerifyPoints.filter((p: string) => !previouslyCoveredPoints.includes(p)) };
-      }
-    } else {
-      const fallbackQ = language === 'zh-CN' ? "没关系，能换个角度聊聊你负责的具体工作吗？" : "That's alright. Could you talk about your responsibilities from another perspective?";
-      parsed = { answerStatus: 'non_answer', decision: 'FOLLOW_UP', followUpIntent: 'CLARIFY_GAP', nextQuestion: fallbackQ, spokenQuestion: fallbackQ, decisionRationale: '[FastPath] First non-answer.', coveredPoints: previouslyCoveredPoints, missingPoints: mustVerifyPoints.filter((p: string) => !previouslyCoveredPoints.includes(p)) };
-    }
-  }
+  // Fast-path non-answer detection — extracted, unit-tested logic (decision-engine.ts).
+  // Returns a deterministic fallback turn, or null to fall through to the LLM.
+  parsed = detectNonAnswer(answer, {
+    consecutiveNonAnswers,
+    isGracefulEnd,
+    nextClaim,
+    consecutiveFailedClaims: memory.getConsecutiveFailedClaims(),
+    currentClaimMustVerify: currentClaim.mustVerify || [],
+    previouslyCoveredPoints,
+    language: language as 'zh-CN' | 'en-US',
+  });
 
   if (!parsed) {
     const historyText = flatHistory.length > 0 ? flatHistory.slice(-2).map(t => `Q: ${t.q}\nA: ${t.a}`).join('\n\n') : 'None';
@@ -341,7 +349,11 @@ CONSTRAINTS:
 ${isLastQuestionOverall ? '- CRITICAL: If decision is NEXT_CLAIM or FOLLOW_UP, start with "This is our final question for today".' : ''}`;
 
     // USER MESSAGE: All candidate-sourced data (untrusted)
+    // Prompt-injection hardening (grafted from upstream): strip any candidate-supplied
+    // <candidate_answer> tags so the answer can't forge the delimiter separating it from
+    // trusted context.
     const safeAnswer = String(answer ?? '').replace(/<\/?candidate_answer[^>]*>/gi, '[tag removed]');
+
     const userData = `Job Role Context: ${JSON.stringify(memory.getJobRoleContext())}
 Current Claim: ${JSON.stringify(currentClaim.claim)} (${JSON.stringify(currentClaim.experienceName || 'Not specified')})
 Must Verify Points: ${JSON.stringify(currentClaim.mustVerify || [])}
@@ -365,81 +377,59 @@ ${safeAnswer}
 </candidate_answer>`;
 
     const ai = getAI();
+    let streamResponse: any;
     const llmStartTime = Date.now();
 
-    // 4.6: The model request is defined here but AWAITED INSIDE the SSE stream
-    // (below), so we can flush an immediate ack + periodic heartbeats to the
-    // client before the model produces its first token. Config is unchanged to
-    // preserve the response contract.
-    const modelRequest = {
-      model: "gemini-3-flash-preview",
-      contents: userData,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "OBJECT",
-          properties: {
-            spokenQuestion: { type: "STRING" },
-            nextQuestion: { type: "STRING" },
-            answerStatus: { type: "STRING", description: "answered, partial, clarification_request, or non_answer" },
-            decision: { type: "STRING", description: "FOLLOW_UP, NEXT_CLAIM, REPEAT_QUESTION, or END_INTERVIEW" },
-            followUpIntent: { type: "STRING", description: "CLARIFY_GAP, DEEPEN, or CHALLENGE" },
-            decisionRationale: { type: "STRING" },
-            coveredPoints: { type: "ARRAY", items: { type: "STRING" } },
-            missingPoints: { type: "ARRAY", items: { type: "STRING" } }
-          },
-          required: ["spokenQuestion", "nextQuestion", "answerStatus", "decision", "decisionRationale", "coveredPoints", "missingPoints"]
+    try {
+      streamResponse = await ai.models.generateContentStream({
+        model: "gemini-3-flash-preview",
+        contents: userData,
+        config: {
+          systemInstruction: systemInstruction,
+          // Real-time voice turn: disable "thinking" so the first spoken
+          // sentence streams almost immediately. With default thinking the
+          // model stays silent ~5s before emitting any text (measured), which
+          // is dead air between the candidate answering and the AI replying.
+          // Budget 0 cuts time-to-first-token from ~5s to ~0.8s.
+          thinkingConfig: { thinkingBudget: 0 },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              spokenQuestion: { type: "STRING" },
+              nextQuestion: { type: "STRING" },
+              answerStatus: { type: "STRING", description: "answered, partial, clarification_request, or non_answer" },
+              decision: { type: "STRING", description: "FOLLOW_UP, NEXT_CLAIM, REPEAT_QUESTION, or END_INTERVIEW" },
+              followUpIntent: { type: "STRING", description: "CLARIFY_GAP, DEEPEN, or CHALLENGE" },
+              decisionRationale: { type: "STRING" },
+              coveredPoints: { type: "ARRAY", items: { type: "STRING" } },
+              missingPoints: { type: "ARRAY", items: { type: "STRING" } }
+            },
+            required: ["spokenQuestion", "nextQuestion", "answerStatus", "decision", "decisionRationale", "coveredPoints", "missingPoints"]
+          }
         }
-      }
-    };
+      });
+    } catch (llmError: any) {
+      logLLMUsage(supabaseAdmin, {
+        sessionId, requestId, endpoint: 'next-step', model: 'gemini-3-flash-preview',
+        billingMode: 'text', latencyMs: Date.now() - llmStartTime,
+        success: false, errorCode: llmError.message || 'LLM_ERROR'
+      });
+      throw llmError;
+    }
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
-        // 4.6: Immediately signal "connected & thinking" BEFORE awaiting the
-        // model. 'ack' is a distinct event that carries NO NextStep payload, so
-        // the client SSE parser can safely ignore it (it only reads its 'data'
-        // for an optional status string).
-        controller.enqueue(encoder.encode(`event: ack\ndata: ${JSON.stringify({ status: 'thinking' })}\n\n`));
-
-        // 4.6: Periodic ':' comment heartbeat while we wait on the model. SSE
-        // comment lines (a line starting with ':') are ignored by every
-        // compliant parser and keep proxies / load balancers from dropping the
-        // idle socket, so the client can distinguish a slow-but-alive model
-        // from a dead connection.
-        let heartbeat: any = setInterval(() => {
-          try { controller.enqueue(encoder.encode(`: keepalive ${Date.now()}\n\n`)); } catch { /* controller already closed */ }
-        }, 10000);
-        const stopHeartbeat = () => { if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } };
-
-        let streamResponse: any;
-        try {
-          streamResponse = await ai.models.generateContentStream(modelRequest);
-        } catch (llmError: any) {
-          logLLMUsage(supabaseAdmin, {
-            sessionId, requestId, endpoint: 'next-step', model: 'gemini-3-flash-preview',
-            billingMode: 'text', latencyMs: Date.now() - llmStartTime,
-            success: false, errorCode: llmError.message || 'LLM_ERROR'
-          });
-          stopHeartbeat();
-          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: llmError.message || 'LLM_ERROR' })}\n\n`));
-          controller.close();
-          return;
-        }
-
         let buffer = "";
         let inSpokenQuestion = false;
         let spokenQuestionBuffer = "";
         let lastSentIndex = 0;
         let segmentIndex = 0;
         let finalJsonString = "";
-
+        
         try {
           for await (const chunk of streamResponse) {
-            // Real model output has begun — stop the pre-model heartbeat so the
-            // ':' comments don't interleave with 'sentence' data frames.
-            stopHeartbeat();
             const textChunk = chunk.text;
             buffer += textChunk;
             finalJsonString += textChunk;
@@ -490,77 +480,65 @@ ${safeAnswer}
           let rawText = finalJsonString.trim().replace(/```json/gi, '').replace(/```/g, '');
           parsed = JSON.parse(rawText);
 
-          const mustVerifyPoints = currentClaim.mustVerify || [];
-          parsed.coveredPoints = (parsed.coveredPoints || []).filter((p: string) => mustVerifyPoints.includes(p));
-          parsed.missingPoints = (parsed.missingPoints || []).filter((p: string) => mustVerifyPoints.includes(p) && !parsed.coveredPoints.includes(p));
-
-          let decisionOverridden = false;
-          if (parsed.answerStatus === 'clarification_request' && repeatCountForCurrentQuestion === 0 && parsed.decision !== 'REPEAT_QUESTION') {
-            parsed.decision = 'REPEAT_QUESTION'; parsed.nextQuestion = question; parsed.spokenQuestion = question; decisionOverridden = true;
-          } else if (forceNextClaim && parsed.decision !== 'NEXT_CLAIM' && parsed.decision !== 'END_INTERVIEW') {
-            parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW'; decisionOverridden = true;
-          } else if (parsed.answerStatus === 'non_answer' && consecutiveNonAnswers >= 1 && parsed.decision !== 'NEXT_CLAIM' && parsed.decision !== 'END_INTERVIEW') {
-            parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW'; decisionOverridden = true;
-          } else if ((parsed.answerStatus === 'partial' || parsed.answerStatus === 'answered') && totalQuestionsAskedForCurrentClaim < minQuestionsPerClaim && (parsed.decision === 'NEXT_CLAIM' || parsed.decision === 'END_INTERVIEW') && !forceNextClaim) {
-            parsed.decision = 'FOLLOW_UP'; decisionOverridden = true;
-          } else if (followUpCountForCurrentClaim >= maxFollowUpsPerClaim && parsed.decision === 'FOLLOW_UP') {
-            const hasMissing = (parsed.missingPoints || []).length > 0;
-            if (!hasMissing || followUpCountForCurrentClaim >= hardLimitFollowUps) {
-              parsed.decision = nextClaim ? 'NEXT_CLAIM' : 'END_INTERVIEW'; decisionOverridden = true;
-            }
-          } else if (!nextClaim && parsed.decision === 'NEXT_CLAIM') {
-            parsed.decision = 'END_INTERVIEW'; decisionOverridden = true;
-          }
-
-          if (decisionOverridden) {
-            if (parsed.decision === 'NEXT_CLAIM' && nextClaim) {
-              parsed.nextQuestion = language === 'zh-CN' ? `好的。接下来聊聊另一段经历：${nextClaim.experienceName}。关于"${nextClaim.claim}"，能详细说说吗？` : `Alright. Let's move to ${nextClaim.experienceName}. Could you elaborate on "${nextClaim.claim}"?`;
-              parsed.spokenQuestion = parsed.nextQuestion;
-            } else if (parsed.decision === 'END_INTERVIEW') {
-              parsed.nextQuestion = language === 'zh-CN' ? "非常感谢你的回答。我们今天的面试就到此结束了。祝你生活愉快，再见！" : "Thank you for your answers. We will conclude our interview here for today. Have a great day, goodbye!";
-              parsed.spokenQuestion = parsed.nextQuestion;
-            } else if (parsed.decision === 'FOLLOW_UP') {
-              parsed.nextQuestion = language === 'zh-CN' ? "关于这一点，你能再深入讲讲技术细节吗？" : "Regarding that, could you dive deeper into the technical details?";
-              parsed.spokenQuestion = parsed.nextQuestion;
-            }
-          }
+          // Deterministic override ladder — extracted, unit-tested logic (decision-engine.ts).
+          // Sanitizes covered/missing points and may rewrite the decision + question in place.
+          applyDecisionOverrides(parsed, {
+            question,
+            repeatCountForCurrentQuestion,
+            forceNextClaim,
+            consecutiveNonAnswers,
+            totalQuestionsAskedForCurrentClaim,
+            minQuestionsPerClaim,
+            followUpCountForCurrentClaim,
+            maxFollowUpsPerClaim,
+            hardLimitFollowUps,
+            nextClaim,
+            currentClaimMustVerify: currentClaim.mustVerify || [],
+            language: language as 'zh-CN' | 'en-US',
+          });
 
           const turnType = parsed.decision === 'NEXT_CLAIM' ? 'transition' : (parsed.decision === 'REPEAT_QUESTION' ? 'repeat' : 'follow_up');
           const uniqueCovered = Array.from(new Set(parsed.coveredPoints || [])) as string[];
           const missingPts = (parsed.missingPoints || []) as string[];
 
-          const persistTask = async () => {
-            try {
-              const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
-                session_id: sessionId,
-                request_id: requestId,
-                question_id: questionId,
-                question: question,
-                answer: answer,
-                claim_id: currentClaim.id,
-                claim_text: currentClaim.claim,
-                experience_name: currentClaim.experienceName,
-                turn_type: turnType,
-                answer_status: parsed.answerStatus,
-                decision: parsed.decision,
-                covered_points: uniqueCovered,
-                missing_points: missingPts,
-                next_question: parsed.nextQuestion
-              });
-              if (insertError) console.error("DB Insert failed: " + insertError.message);
+          // C1 fix: commit the turn DURABLY before emitting `complete`. The client treats
+          // `complete` as authoritative and advances (rotates requestId), so it must never
+          // fire for a turn that isn't persisted. A 23505 unique_violation means this
+          // requestId is already stored (idempotent retry) and counts as success; any other
+          // failure emits `error` instead, so the client keeps the same requestId and can
+          // retry rather than silently losing the turn and desyncing replayed state.
+          let persisted = true;
+          try {
+            const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
+              session_id: sessionId,
+              request_id: requestId,
+              question_id: questionId,
+              question: question,
+              answer: answer,
+              claim_id: currentClaim.id,
+              claim_text: currentClaim.claim,
+              experience_name: currentClaim.experienceName,
+              turn_type: turnType,
+              answer_status: parsed.answerStatus,
+              decision: parsed.decision,
+              covered_points: uniqueCovered,
+              missing_points: missingPts,
+              next_question: parsed.nextQuestion
+            });
+            if (insertError && insertError.code !== '23505') throw insertError;
 
-              if (parsed.decision === 'END_INTERVIEW') {
-                 await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
-              }
-            } catch (e) {
-              console.error("Background persist failed", e);
+            if (parsed.decision === 'END_INTERVIEW') {
+               await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
             }
-          };
+          } catch (e: any) {
+            persisted = false;
+            console.error("[Next-Step] Turn persist failed:", e?.message || e);
+          }
 
-          if (ctx && ctx.waitUntil) {
-            ctx.waitUntil(persistTask());
-          } else {
-            persistTask().catch(e => console.error(e));
+          if (!persisted) {
+            controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: "PERSIST_FAILED" })}\n\n`));
+            controller.close();
+            return;
           }
 
           transcript.push({
@@ -578,16 +556,14 @@ ${safeAnswer}
             coveredPoints: uniqueCovered,
             missingPoints: missingPts
           });
-          
+
           parsed.transcript = transcript;
 
-          stopHeartbeat();
           controller.enqueue(encoder.encode(`event: complete\ndata: ${JSON.stringify(parsed)}\n\n`));
           controller.close();
-
+          
         } catch (streamError: any) {
           console.error("Streaming error", streamError);
-          stopHeartbeat();
           controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: streamError.message })}\n\n`));
           controller.close();
         }
@@ -611,38 +587,34 @@ ${safeAnswer}
   const uniqueCovered = Array.from(new Set(parsed.coveredPoints || [])) as string[];
   const missingPts = (parsed.missingPoints || []) as string[];
 
-  const persistTask = async () => {
-    try {
-      const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
-        session_id: sessionId,
-        request_id: requestId,
-        question_id: questionId,
-        question: question,
-        answer: answer,
-        claim_id: currentClaim.id,
-        claim_text: currentClaim.claim,
-        experience_name: currentClaim.experienceName,
-        turn_type: turnType,
-        answer_status: parsed.answerStatus,
-        decision: parsed.decision,
-        covered_points: uniqueCovered,
-        missing_points: missingPts,
-        next_question: parsed.nextQuestion
-      });
-      if (insertError) console.error("DB Insert failed: " + insertError.message);
+  // C1 fix: persist the turn DURABLY before returning; the client advances (rotates
+  // requestId) on this response. A 23505 unique_violation is an idempotent retry (success);
+  // any other failure returns 503 so the client retries the SAME requestId.
+  try {
+    const { error: insertError } = await supabaseAdmin.from('session_transcripts').insert({
+      session_id: sessionId,
+      request_id: requestId,
+      question_id: questionId,
+      question: question,
+      answer: answer,
+      claim_id: currentClaim.id,
+      claim_text: currentClaim.claim,
+      experience_name: currentClaim.experienceName,
+      turn_type: turnType,
+      answer_status: parsed.answerStatus,
+      decision: parsed.decision,
+      covered_points: uniqueCovered,
+      missing_points: missingPts,
+      next_question: parsed.nextQuestion
+    });
+    if (insertError && insertError.code !== '23505') throw insertError;
 
-      if (parsed.decision === 'END_INTERVIEW') {
-         await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
-      }
-    } catch (e) {
-      console.error("Background persist failed", e);
+    if (parsed.decision === 'END_INTERVIEW') {
+       await supabaseAdmin.from('interview_sessions').update({ status: 'INTERVIEW_ENDED', phase: 'completed' }).eq('id', sessionId);
     }
-  };
-
-  if (ctx && ctx.waitUntil) {
-    ctx.waitUntil(persistTask());
-  } else {
-    persistTask().catch(e => console.error(e));
+  } catch (e: any) {
+    console.error("[Next-Step] Turn persist failed:", e?.message || e);
+    return new Response(JSON.stringify({ error: "Failed to persist turn; please retry." }), { status: 503, headers: { "Content-Type": "application/json" } });
   }
 
   transcript.push({

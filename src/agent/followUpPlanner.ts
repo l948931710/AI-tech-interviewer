@@ -22,11 +22,16 @@ export async function getNextInterviewStep(
     const sessionId = authHeaders['X-Session-Id'];
     if (!sessionId) throw new Error("No active session ID for backend agent call");
 
+    // next-step requires a stable requestId (idempotency). This simulation helper generates
+    // one per call so it isn't rejected with a 400. Portable across browser and Node.
+    const requestId = globalThis.crypto?.randomUUID?.() ?? `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
     const response = await fetch(`${baseUrl}/agent/next-step`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
         sessionId,
+        requestId,
         answer,
         question,
         questionId,
