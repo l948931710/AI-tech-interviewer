@@ -18,7 +18,9 @@ export function useAudio(language: 'zh-CN' | 'en-US' = 'zh-CN') {
   };
 }
 
-export function useCamera() {
+// `active: false` fully releases the device (browser camera light turns off) —
+// hiding the self-view must not keep capturing in the background.
+export function useCamera(active: boolean = true) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasVideo, setHasVideo] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
@@ -49,7 +51,11 @@ export function useCamera() {
       }
     }
 
-    setupCamera();
+    if (active) {
+      setupCamera();
+    } else {
+      setHasVideo(false);
+    }
 
     return () => {
       cancelled = true;
@@ -58,7 +64,7 @@ export function useCamera() {
         streamRef.current = null;
       }
     };
-  }, []);
+  }, [active]);
 
   return { videoRef, hasVideo };
 }

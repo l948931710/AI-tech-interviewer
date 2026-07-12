@@ -28,6 +28,9 @@ export function useSilenceDetection(
   // while an auto-submit is scheduled; `submitRemainingMs` counts down to 0.
   const [pendingSubmit, setPendingSubmit] = useState(false);
   const [submitRemainingMs, setSubmitRemainingMs] = useState(0);
+  // Observable auto-SKIP countdown (level 2, nothing said). 0 when not armed —
+  // surfaced so the candidate is never skipped without a visible deadline.
+  const [skipRemainingMs, setSkipRemainingMs] = useState(0);
 
   const onSilenceTimeoutRef = useRef(onSilenceTimeout);
   const onSubmitRef = useRef(onSubmit);
@@ -119,11 +122,14 @@ export function useSilenceDetection(
   // Includes a grace period after TTS ends to give the candidate time to think.
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let skipTickId: ReturnType<typeof setInterval> | undefined;
+    let armedSkip = false;
 
     // While an external "more time" request is active, hold the escalation at
     // level 0 and don't schedule anything.
     if (escalationPaused) {
       if (silenceLevel !== 0) setSilenceLevel(0);
+      setSkipRemainingMs(0);
       return;
     }
 
@@ -146,13 +152,26 @@ export function useSilenceDetection(
         // Level 2 → skip: 12s after voice reminder. Only escalate to skip when
         // ASR is actually healthy; otherwise we can't trust the silence.
         if (isAsrHealthy) {
+          armedSkip = true;
+          const deadline = Date.now() + 12000;
+          setSkipRemainingMs(12000);
+          skipTickId = setInterval(() => {
+            setSkipRemainingMs(Math.max(0, deadline - Date.now()));
+          }, 250);
           timeoutId = setTimeout(() => {
+            setSkipRemainingMs(0);
             onSilenceTimeoutRef.current('skip');
           }, 12000);
         }
       }
     }
-    return () => clearTimeout(timeoutId);
+    // Any run that doesn't (re)arm the skip deadline — speech appeared, mic
+    // stopped, level fell back — clears the visible countdown.
+    if (!armedSkip) setSkipRemainingMs(0);
+    return () => {
+      clearTimeout(timeoutId);
+      if (skipTickId) clearInterval(skipTickId);
+    };
   }, [isListening, transcript, interimTranscript, silenceLevel, isAsrHealthy, escalationPaused]);
 
   return {
@@ -160,6 +179,7 @@ export function useSilenceDetection(
     setSilenceLevel,
     pendingSubmit,
     submitRemainingMs,
+    skipRemainingMs,
     cancelPendingSubmit
   };
 }

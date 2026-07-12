@@ -132,6 +132,12 @@
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+  /* Functional progress indicators are meaning, not decoration: a frozen
+     spinner reads as a crashed app. Keep spin alive (slower). */
+  .animate-spin {
+    animation-duration: 1.6s !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 /* Reduced-transparency: drop the blur, use an opaque panel. */

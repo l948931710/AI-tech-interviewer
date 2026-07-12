@@ -5,34 +5,40 @@ interface CameraProps {
   showCamera: boolean;
   hasVideo: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  language?: 'zh-CN' | 'en-US';
 }
 
-export function Camera({ showCamera, hasVideo, videoRef }: CameraProps) {
+export function Camera({ showCamera, hasVideo, videoRef, language = 'zh-CN' }: CameraProps) {
+  const isZh = language === 'zh-CN';
   return (
     <AnimatePresence>
       {showCamera && (
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
           className="absolute bottom-8 right-8 w-48 aspect-video rounded-2xl overflow-hidden border border-white/15 shadow-2xl bg-black/60 group z-30"
         >
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            playsInline 
-            muted 
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
             className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
           />
           {!hasVideo && (
             <div className="absolute inset-0 flex items-center justify-center text-white/60 text-xs bg-[#131316]">
-              Camera Off
+              {isZh ? '摄像头未开启' : 'Camera off'}
             </div>
           )}
-          <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-bold tracking-wider text-white">
-            <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
-            REC
-          </div>
+          {/* Honest label: this is a local self-view; nothing is recorded, so no
+              fake blinking "REC" badge. Only shown when video is actually live. */}
+          {hasVideo && (
+            <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-bold tracking-wider text-white/80">
+              <span className="w-1.5 h-1.5 bg-primary rounded-full"></span>
+              {isZh ? '本地预览' : 'Self view'}
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>

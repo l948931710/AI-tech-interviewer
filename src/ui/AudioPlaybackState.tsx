@@ -1,6 +1,6 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Loader2, AlertTriangle, RotateCw, VolumeX } from 'lucide-react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { Loader2, AlertTriangle, RotateCw, VolumeX, Volume2 } from 'lucide-react';
 import type { AsrError } from '../voice/useASR';
 
 interface AudioPlaybackStateProps {
@@ -19,6 +19,14 @@ interface AudioPlaybackStateProps {
   onRetryAsr?: () => void;
   /** Playback/TTS failure. When set (with no audio), the read-the-question hint shows. */
   playbackError?: string | null;
+  /** Countdown (ms) until the silent question is auto-skipped; 0 when not armed. */
+  skipRemainingMs?: number;
+  /** True while a failed turn awaits its Retry banner — suppresses the
+   *  "tap the mic to answer" idle line, which would contradict the locked mic. */
+  turnErrorActive?: boolean;
+  /** Re-speaks the current question. Shown as a small replay affordance. */
+  onReplayQuestion?: () => void;
+  language?: 'zh-CN' | 'en-US';
 }
 
 type StatusTone = 'ai' | 'user';
@@ -32,12 +40,21 @@ interface Status {
 
 // Single status line resolved by strict state priority so AI-turn and
 // user-turn states can never render simultaneously or be confused.
-function resolveStatus(p: AudioPlaybackStateProps): Status | null {
-  if (p.isEvaluating) return { text: 'AI 正在思考…', tone: 'ai', assertive: true, spinner: true };
-  if (p.isPreparingAudio) return { text: '准备回复…', tone: 'ai', assertive: false, spinner: true };
-  if (p.isAiSpeaking) return { text: 'AI 正在说话…', tone: 'ai', assertive: true, spinner: false };
-  if (p.isSpeechDetected) return { text: '我在听你说…', tone: 'user', assertive: false, spinner: false };
-  if (p.isListening) return { text: '请开始回答', tone: 'user', assertive: false, spinner: false };
+function resolveStatus(p: AudioPlaybackStateProps, isZh: boolean): Status | null {
+  if (p.isEvaluating) return { text: isZh ? 'AI 正在思考…' : 'AI is thinking…', tone: 'ai', assertive: true, spinner: true };
+  if (p.isPreparingAudio) return { text: isZh ? '准备回复…' : 'Preparing reply…', tone: 'ai', assertive: false, spinner: true };
+  if (p.isAiSpeaking) return { text: isZh ? 'AI 正在说话…' : 'AI is speaking…', tone: 'ai', assertive: true, spinner: false };
+  // Once the candidate has said anything, stay in "listening" through natural
+  // pauses — flapping back to "start answering" mid-answer reads as data loss.
+  if (p.isListening && (p.isSpeechDetected || p.transcript.trim() || p.interimTranscript.trim())) {
+    return { text: isZh ? '我在听你说…' : 'Listening…', tone: 'user', assertive: false, spinner: false };
+  }
+  if (p.isListening) return { text: isZh ? '请开始回答' : 'Start answering when ready', tone: 'user', assertive: false, spinner: false };
+  // Mic manually turned off between turns: without this line the screen goes
+  // fully silent with no cue about how to continue — a quiet dead-end.
+  if (!p.asrError && !p.turnErrorActive && p.currentQuestion) {
+    return { text: isZh ? '麦克风已暂停 — 点击麦克风按钮继续作答' : 'Mic paused — tap the mic button to answer', tone: 'user', assertive: false, spinner: false };
+  }
   return null;
 }
 
@@ -54,13 +71,23 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
     interimTranscript,
     asrError,
     onRetryAsr,
-    playbackError
+    playbackError,
+    skipRemainingMs = 0,
+    onReplayQuestion,
+    turnErrorActive = false,
+    language = 'zh-CN'
   } = props;
 
-  const status = resolveStatus(props);
+  const isZh = language === 'zh-CN';
+  const reduceMotion = useReducedMotion();
+  const status = resolveStatus(props, isZh);
   // Two-role signal: the AI speaks in warm-white light, the candidate answers in
   // lime — so the wave color alone tells you whose turn it is.
   const aiActive = isEvaluating || isPreparingAudio || isAiSpeaking;
+  // Avoid triple-announcing the same state: while the eval banner (thinking) or
+  // the top "Aura is Speaking" pill is on screen, the status line still feeds
+  // the aria-live region but is visually hidden so only ONE indicator shows.
+  const statusVisuallyHidden = isEvaluating || isAiSpeaking;
 
   const waveHeights = [
     'h-4', 'h-8', 'h-16', 'h-24', 'h-40', 'h-56', 'h-64', 'h-48',
@@ -82,30 +109,48 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
   ];
   const barColors = aiActive ? aiOpacities : userOpacities;
 
-  // Audio is unavailable if either the mic/ASR or the TTS playback failed.
-  const audioUnavailable = !!asrError || !!playbackError;
+  // Output-audio failure only. An ASR (input) error must not claim "audio
+  // unavailable" — the question audio may be playing perfectly fine.
+  const playbackUnavailable = !!playbackError;
+
+  const canReplay = !!onReplayQuestion && !!currentQuestion && !aiActive && !turnErrorActive;
+  const skipSeconds = Math.ceil(skipRemainingMs / 1000);
 
   return (
     <div className="w-full max-w-2xl flex flex-col items-center justify-center relative min-h-[160px]">
 
-      {/* Persistent AI caption — the question stays visible as readable text. */}
+      {/* Persistent AI caption — the question stays visible as readable text.
+          Dimmed while the AI is evaluating/preparing, signaling that this text
+          belongs to the outgoing turn and new content is on its way. */}
       {currentQuestion && (
         <div className="w-full mb-4 px-2">
           <div className="mx-auto max-w-xl text-center">
             <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#e8e6e1]/60">AI</span>
-            <p className="text-base md:text-lg font-medium leading-relaxed text-white/90 mt-1">
+            <p className={`text-base md:text-lg font-medium leading-relaxed text-white/90 mt-1 transition-opacity duration-300 ${
+              isEvaluating || isPreparingAudio ? 'opacity-50' : 'opacity-100'
+            }`}>
               {currentQuestion}
             </p>
+            {canReplay && (
+              <button
+                type="button"
+                onClick={onReplayQuestion}
+                className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-white/45 hover:text-primary transition-colors"
+              >
+                <Volume2 size={13} />
+                {isZh ? '重听问题' : 'Replay question'}
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {/* Audio-unavailable hint: question is shown as text above, so guide the user to read it. */}
-      {audioUnavailable && currentQuestion && (
+      {/* Playback-unavailable hint: question is shown as text above, so guide the user to read it. */}
+      {playbackUnavailable && currentQuestion && (
         <div className="w-full mb-3 flex justify-center">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium">
             <VolumeX className="w-3.5 h-3.5" />
-            音频不可用 — 请阅读上方问题
+            {isZh ? '音频不可用 — 请阅读上方问题' : 'Audio unavailable — please read the question above'}
           </div>
         </div>
       )}
@@ -120,11 +165,11 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
               <button
                 type="button"
                 onClick={onRetryAsr}
-                aria-label="重试麦克风"
+                aria-label={isZh ? '重试麦克风' : 'Retry microphone'}
                 className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500 hover:text-white text-red-200 text-xs font-bold uppercase tracking-wider transition-colors flex-shrink-0"
               >
                 <RotateCw className="w-3.5 h-3.5" />
-                重试
+                {isZh ? '重试' : 'Retry'}
               </button>
             )}
           </div>
@@ -137,10 +182,17 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="absolute -top-12 bg-primary text-background px-4 py-2 rounded-full shadow-lg text-sm flex items-center gap-2 z-50 whitespace-nowrap tracking-wide"
+            className={`absolute -top-12 px-4 py-2 rounded-full shadow-lg text-sm flex items-center gap-2 z-50 whitespace-nowrap tracking-wide ${
+              silenceLevel >= 2 && skipSeconds > 0
+                ? 'bg-amber-400 text-background'
+                : 'bg-primary text-background'
+            }`}
+            aria-live="polite"
           >
             <Loader2 className="w-4 h-4 animate-spin" />
-            Waiting for your response...
+            {silenceLevel >= 2 && skipSeconds > 0
+              ? (isZh ? `${skipSeconds} 秒后将跳过此题 — 开口即可继续` : `Skipping in ${skipSeconds}s — just start speaking`)
+              : (isZh ? '等待你的回答…' : 'Waiting for your response…')}
           </motion.div>
         )}
       </AnimatePresence>
@@ -150,7 +202,12 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
            let animateConfig: any = { scaleY: 0.1 };
            let transitionConfig: any = { duration: 0.5 };
 
-           if (isEvaluating) {
+           if (reduceMotion) {
+              // Static, state-keyed amplitudes: no looping motion, but the
+              // bars still communicate whose turn it is and that we're live.
+              animateConfig = { scaleY: aiActive ? 0.45 : isListening ? 0.3 : 0.12 };
+              transitionConfig = { duration: 0 };
+           } else if (isEvaluating) {
               animateConfig = { scaleY: [0.2, 0.5, 0.2] };
               transitionConfig = { duration: 1.5, repeat: Infinity, delay: i * 0.1 };
            } else if (isPreparingAudio) {
@@ -176,7 +233,9 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
         })}
       </div>
 
-      {/* Single status line, driven by state priority, in an aria-live region. */}
+      {/* Single status line, driven by state priority, in an aria-live region.
+          Visually hidden when a richer indicator (eval banner / speaking pill)
+          already covers the same state, so exactly one indicator shows. */}
       <div
         className="absolute bottom-0 min-h-[1.5rem] flex items-center justify-center"
         aria-live={status?.assertive ? 'assertive' : 'polite'}
@@ -190,7 +249,7 @@ export function AudioPlaybackState(props: AudioPlaybackStateProps) {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className={`text-sm font-bold uppercase tracking-widest flex items-center gap-2 ${
+              className={`${statusVisuallyHidden ? 'sr-only' : ''} text-sm font-bold uppercase tracking-widest flex items-center gap-2 ${
                 status.tone === 'ai' ? 'text-[#e8e6e1]' : 'text-primary'
               }`}
             >

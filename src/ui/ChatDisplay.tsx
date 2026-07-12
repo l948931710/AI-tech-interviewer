@@ -15,6 +15,7 @@ interface ChatDisplayProps {
    * to keep it visible as a "sent" bubble instead of blanking the conversation.
    */
   submittedAnswer?: string | null;
+  language?: 'zh-CN' | 'en-US';
 }
 
 export function ChatDisplay({
@@ -24,8 +25,10 @@ export function ChatDisplay({
   scrollRef,
   currentQuestion,
   isEvaluating,
-  submittedAnswer
+  submittedAnswer,
+  language = 'zh-CN'
 }: ChatDisplayProps) {
+  const isZh = language === 'zh-CN';
   const hasLiveAnswer = !!(transcript || interimTranscript);
   // While evaluating, the live transcript is blanked by the parent — fall back
   // to the preserved submitted answer so we never visually drop the candidate's
@@ -64,7 +67,7 @@ export function ChatDisplay({
           </div>
           <div className="flex-1 mt-1">
             <span className="text-[10px] font-bold uppercase tracking-widest text-white/40 flex items-center justify-end gap-1">
-              You
+              {isZh ? '你' : 'You'}
               {sentAnswer && (
                 <span className="material-symbols-outlined text-[12px] leading-none text-primary">check</span>
               )}

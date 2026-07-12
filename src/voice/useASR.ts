@@ -23,7 +23,7 @@ const MAX_AUTO_RESTARTS = 3;
 // (candidate paused, engine cycled) and reset the counter.
 const AUTO_RESTART_WINDOW_MS = 2000;
 
-function mapAsrError(error: string): AsrError | null {
+function mapAsrError(error: string, isZh: boolean): AsrError | null {
   switch (error) {
     case 'no-speech':
       // Expected/benign; not surfaced as an error.
@@ -32,15 +32,15 @@ function mapAsrError(error: string): AsrError | null {
       // Caused by our own stop()/restart; not a user-facing error.
       return null;
     case 'not-allowed':
-      return { kind: 'denied', message: 'Microphone permission was denied. Please allow mic access and retry.' };
+      return { kind: 'denied', message: isZh ? '麦克风权限被拒绝。请允许麦克风访问后重试。' : 'Microphone permission was denied. Please allow mic access and retry.' };
     case 'audio-capture':
-      return { kind: 'no-device', message: 'No microphone was found. Please connect a mic and retry.' };
+      return { kind: 'no-device', message: isZh ? '未检测到麦克风。请连接麦克风后重试。' : 'No microphone was found. Please connect a mic and retry.' };
     case 'network':
-      return { kind: 'network', message: 'Speech recognition lost its network connection. Check your connection and retry.' };
+      return { kind: 'network', message: isZh ? '语音识别的网络连接中断。请检查网络后重试。' : 'Speech recognition lost its network connection. Check your connection and retry.' };
     case 'service-not-allowed':
-      return { kind: 'service', message: 'The speech recognition service is unavailable. Please retry.' };
+      return { kind: 'service', message: isZh ? '语音识别服务暂不可用。请重试。' : 'The speech recognition service is unavailable. Please retry.' };
     default:
-      return { kind: 'unknown', message: `Speech recognition error: ${error}` };
+      return { kind: 'unknown', message: isZh ? `语音识别出错：${error}` : `Speech recognition error: ${error}` };
   }
 }
 
@@ -60,6 +60,13 @@ export function useASR(language: 'zh-CN' | 'en-US' = 'zh-CN') {
   // Auto-restart bookkeeping for onend -> start() loop protection.
   const restartCountRef = useRef(0);
   const lastRestartTimeRef = useRef(0);
+  // Mirrors isListening for non-reactive readers (effect cleanups).
+  const isListeningRef = useRef(false);
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
+  // Set by the [language] effect's cleanup so the re-run can seamlessly restart
+  // recognition in the new language instead of leaving a dead engine behind
+  // while the UI still claims to be listening.
+  const restartAfterRecreateRef = useRef(false);
 
   // Best-effort permission state via the Permissions API. Not available in
   // every browser (notably Safari historically), so guard carefully.
@@ -92,6 +99,7 @@ export function useASR(language: 'zh-CN' | 'en-US' = 'zh-CN') {
   }, []);
 
   useEffect(() => {
+    const isZh = language === 'zh-CN';
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       recognitionRef.current = new SpeechRecognition();
@@ -133,7 +141,7 @@ export function useASR(language: 'zh-CN' | 'en-US' = 'zh-CN') {
           setPermissionState('denied');
           setIsListening(false);
         }
-        const mapped = mapAsrError(event.error);
+        const mapped = mapAsrError(event.error, isZh);
         if (mapped) {
           setAsrError(mapped);
         }
@@ -159,22 +167,43 @@ export function useASR(language: 'zh-CN' | 'en-US' = 'zh-CN') {
           setIsListening(false);
           setAsrError((prev) => prev ?? {
             kind: 'service',
-            message: 'Speech recognition kept dropping. Please retry.',
+            message: isZh ? '语音识别持续中断，请重试。' : 'Speech recognition kept dropping. Please retry.',
           });
           return;
         }
 
         try {
           recognitionRef.current.start();
+          // Reconcile state: a retry clicked mid-winddown can reach here with
+          // isListening=false — the engine is now genuinely running, say so.
+          setIsListening(true);
         } catch (e) {
           setIsListening(false);
         }
       };
     }
 
+    // A language switch tore down a live engine — start the new one so the
+    // candidate isn't left with a dead mic behind a "listening" UI.
+    if (restartAfterRecreateRef.current && recognitionRef.current) {
+      restartAfterRecreateRef.current = false;
+      isIntentionalStopRef.current = false;
+      restartCountRef.current = 0;
+      lastRestartTimeRef.current = 0;
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch {
+        setIsListening(false);
+      }
+    }
+
     const recognition = recognitionRef.current;
     return () => {
       if (recognition) {
+        // If the engine was live, flag the next effect run (language change) to
+        // restart it. On real unmount the flag is simply never read again.
+        restartAfterRecreateRef.current = isListeningRef.current;
         // Prevent onend from auto-restarting recognition after unmount/re-run.
         isIntentionalStopRef.current = true;
         // Detach handlers so no post-unmount callbacks fire setState.
@@ -204,8 +233,15 @@ export function useASR(language: 'zh-CN' | 'en-US' = 'zh-CN') {
       try {
         recognitionRef.current.start();
         setIsListening(true);
-      } catch (e) {
-        console.error(e);
+      } catch (e: any) {
+        // InvalidStateError = the engine is ALREADY running (e.g. leftover
+        // barge-in detection session) — reconcile state instead of staying
+        // visually "off" while audio is being captured.
+        if (e?.name === 'InvalidStateError') {
+          setIsListening(true);
+        } else {
+          console.error(e);
+        }
       }
     }
   }, [isListening]);
@@ -218,6 +254,16 @@ export function useASR(language: 'zh-CN' | 'en-US' = 'zh-CN') {
       setIsSpeechDetected(false);
     }
   }, [isListening]);
+
+  // Clears both transcripts WITHOUT restarting recognition. Needed at turn
+  // boundaries (AI finished speaking) where the mic may already be running for
+  // barge-in detection: startListening() is a no-op then, so any echo of the
+  // AI's own voice captured during playback would otherwise survive into the
+  // candidate's turn and could be auto-submitted as their answer.
+  const resetTranscripts = useCallback(() => {
+    setTranscript('');
+    setInterimTranscript('');
+  }, []);
 
   // Clears the current error and restarts recognition from a clean slate.
   // NOTE: any words spoken between the error and this retry are lost — the
@@ -252,6 +298,7 @@ export function useASR(language: 'zh-CN' | 'en-US' = 'zh-CN') {
     startListening,
     stopListening,
     setTranscript,
+    resetTranscripts,
     isSupported,
     asrError,
     permissionState,

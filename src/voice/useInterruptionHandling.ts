@@ -2,8 +2,12 @@ import { useEffect, useRef } from 'react';
 
 // Barge-in tuning. Applies to ALL AI speech (questions, feedback, reminders),
 // not just the reminder, so a candidate can cut in whenever the AI is talking.
-const BARGE_IN_MIN_MS = 1000;      // Ignore the first ~1s of AI playback (avoids self-trigger on onset)
-const BARGE_IN_DEBOUNCE_MS = 300;  // Candidate must speak for ~300ms to confirm a real barge-in
+// The debounce must be long enough that speaker echo of the AI's own voice
+// (when browser echo-cancellation fails) doesn't confirm a phantom barge-in —
+// 300ms proved trivially passable by continuous echo; ~900ms of sustained
+// speech is a deliberate interruption while still feeling responsive.
+const BARGE_IN_MIN_MS = 1500;      // Ignore the first ~1.5s of AI playback (avoids self-trigger on onset)
+const BARGE_IN_DEBOUNCE_MS = 900;  // Sustained speech required to confirm a real barge-in
 
 export function useInterruptionHandling(
   isAiSpeaking: boolean,
@@ -13,7 +17,11 @@ export function useInterruptionHandling(
   isReminderSpeaking: boolean,
   startListening: () => void,
   stopListening: () => void,
-  onBargeIn?: () => void
+  onBargeIn?: () => void,
+  // Clears transcripts at the AI→candidate turn boundary. Required because
+  // startListening() is a no-op while the mic is already running for barge-in
+  // detection, so it alone cannot discard echo captured during AI playback.
+  resetTranscripts?: () => void
 ) {
   const prevIsAiSpeaking = useRef(isAiSpeaking);
   const aiSpeakingStartTime = useRef<number>(0);
@@ -44,10 +52,13 @@ export function useInterruptionHandling(
         clearTimeout(micReEnableTimerRef.current);
         micReEnableTimerRef.current = null;
       }
+      // Discard anything transcribed during AI playback (speaker echo picked up
+      // by the barge-in detection mic). The candidate's turn starts clean.
+      resetTranscripts?.();
       startListening();
     }
     prevIsAiSpeaking.current = isAiSpeaking;
-  }, [isAiSpeaking, isEvaluating, isPreparingAudio, isReminderSpeaking, startListening, stopListening, onBargeIn]);
+  }, [isAiSpeaking, isEvaluating, isPreparingAudio, isReminderSpeaking, startListening, stopListening, onBargeIn, resetTranscripts]);
 
   // Barge-in detection: speech detected during ANY AI TTS (after the min window).
   useEffect(() => {

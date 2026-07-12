@@ -208,6 +208,10 @@ export default function InterviewPortal() {
   // Turn-level failure that the candidate can retry without re-speaking (5.5 / 5.13)
   const [turnError, setTurnError] = useState<TurnError | null>(null);
   const pendingTurnRef = useRef<{ answer: string; requestId: string } | null>(null);
+  // Abort handle for the in-flight next-step request, so a candidate stuck on
+  // "still thinking…" can force a fresh attempt (same answer + requestId).
+  const turnAbortRef = useRef<AbortController | null>(null);
+  const manualEvalRetryRef = useRef(false);
 
   // Audio & UI State — single source of truth for voice pipeline coordination
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
@@ -319,10 +323,22 @@ export default function InterviewPortal() {
     setVoiceState('idle');
   };
 
+  // True once the candidate deliberately interrupted the current AI playback;
+  // suppresses the silent-turn TTS fallback (they chose not to listen).
+  const bargedInRef = useRef(false);
+
   const handleBargeIn = useCallback(() => {
+    bargedInRef.current = true;
     stopAudio();
     setVoiceState('idle');
   }, [stopAudio]);
+
+  // Re-speak the current question on request (idle turns only).
+  const handleReplayQuestion = useCallback(() => {
+    if (voiceState !== 'idle' || !currentQuestion) return;
+    speakQuestion(currentQuestion);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceState, currentQuestion]);
 
   const applyNextStep = (nextStep: any) => {
     const updatedMemory = new InterviewMemory(session!.claims, session!.jobRoleContext);
@@ -331,8 +347,13 @@ export default function InterviewPortal() {
     }
     setMemory(updatedMemory);
     setInterviewPhase('TECHNICAL');
-    setCurrentTurnType('follow_up');
-    setCurrentQuestionId(crypto.randomUUID());
+    setCurrentTurnType(nextStep.decision === 'REPEAT_QUESTION' ? 'repeat' : 'follow_up');
+    // Keep the SAME questionId when the server repeats the question verbatim:
+    // the server's repeat-once guard counts turns per questionId, so rotating
+    // it here would let "could you repeat that?" loop forever.
+    if (nextStep.decision !== 'REPEAT_QUESTION') {
+      setCurrentQuestionId(crypto.randomUUID());
+    }
     setCurrentRequestId(crypto.randomUUID());
     setCurrentQuestion(nextStep.nextQuestion);
   };
@@ -485,6 +506,8 @@ export default function InterviewPortal() {
   //  - Error         -> network / 5xx (retryable)
   const runTurn = async (answer: string, requestId: string): Promise<'end' | 'done'> => {
     const token = searchParams.get('token') || '';
+    const controller = new AbortController();
+    turnAbortRef.current = controller;
     const res = await fetch('/api/agent/next-step', {
       method: 'POST',
       headers: {
@@ -499,7 +522,8 @@ export default function InterviewPortal() {
         question: currentQuestion,
         questionId: currentQuestionId,
         language,
-      })
+      }),
+      signal: controller.signal,
     });
 
     if (res.status === 401 || res.status === 403) {
@@ -513,32 +537,109 @@ export default function InterviewPortal() {
 
     if (isStream) {
       // --- OPPORTUNISTIC SSE PIPELINE (early TTS as sentences stream in) ---
+      // The SSE reader is decoupled from audio playback: a barge-in (or any
+      // playback fault) only stops the AUDIO, while the reader keeps consuming
+      // events until 'complete'. Otherwise interrupting the AI mid-stream would
+      // strand the turn without its atomic advance signal and surface a bogus
+      // "response was cut off" error that then blocks the candidate's answer.
       let completeStep: any = null;
+      let streamError: any = null;
+
+      const sentenceQueue: { text: string; segmentIndex: number }[] = [];
+      let queueDone = false;
+      let notifyQueue: (() => void) | null = null;
+      const wakeQueue = () => { notifyQueue?.(); notifyQueue = null; };
+
+      // First-event idle watchdog: if the SSE produces NOTHING for 25s after
+      // headers, abort into the retry path instead of freezing on "thinking".
+      let sawFirstEvent = false;
+      const firstEventTimer = setTimeout(() => {
+        if (!sawFirstEvent) controller.abort();
+      }, 25000);
+
+      const readerDone = (async () => {
+        try {
+          for await (const event of parseNextStepStream(res.body!)) {
+            if (!sawFirstEvent) {
+              sawFirstEvent = true;
+              clearTimeout(firstEventTimer);
+            }
+            if (event.type === 'sentence') {
+              sentenceQueue.push(event.payload as { text: string; segmentIndex: number });
+              wakeQueue();
+            } else if (event.type === 'complete') {
+              // 'complete' is the atomic advance signal: only here do we commit
+              // new question/memory. If it never arrives we never advance (5.13).
+              completeStep = event.payload;
+              applyNextStep(completeStep);
+            } else if (event.type === 'error') {
+              streamError = new Error(event.payload?.error || 'stream error');
+            }
+          }
+        } catch (e) {
+          streamError = e;
+        }
+        clearTimeout(firstEventTimer);
+        queueDone = true;
+        wakeQueue();
+      })();
 
       async function* sentenceGenerator() {
-        for await (const event of parseNextStepStream(res.body!)) {
-          if (event.type === 'sentence') {
-            yield event.payload as { text: string; segmentIndex: number };
-          } else if (event.type === 'complete') {
-            // 'complete' is the atomic advance signal: only here do we commit
-            // new question/memory. If it never arrives we never advance (5.13).
-            completeStep = event.payload;
-            applyNextStep(completeStep);
-          } else if (event.type === 'error') {
-            throw new Error(event.payload?.error || 'stream error');
+        let next = 0;
+        while (true) {
+          if (next < sentenceQueue.length) {
+            yield sentenceQueue[next++];
+            continue;
           }
+          if (queueDone) return;
+          await new Promise<void>((resolve) => { notifyQueue = resolve; });
         }
       }
 
       const audioStream = sequenceTTSStreams(sentenceGenerator(), generateTTSStream);
       setVoiceState('preparing');
+      // Tracks whether streamed TTS ever actually produced audio — if not, the
+      // turn would otherwise complete in dead silence.
+      let spoke = false;
       try {
-        await playTTSStream(audioStream, () => setVoiceState('speaking'));
+        await playTTSStream(audioStream, () => {
+          spoke = true;
+          setVoiceState('speaking');
+        });
       } catch (error) {
         console.error("Stream playback fault", error);
       }
-      setVoiceState('idle');
 
+      // Playback ended (naturally or via barge-in). Give the reader a bounded
+      // window to finish; in the common case it's already done since text
+      // events arrive much faster than audio plays.
+      let drainTimer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        readerDone,
+        new Promise<void>((resolve) => { drainTimer = setTimeout(resolve, 15000); }),
+      ]);
+      clearTimeout(drainTimer);
+
+      // Silent-turn rescue: the turn committed but no audio ever played (TTS
+      // outage). Read the question aloud via the browser fallback so the
+      // candidate isn't left staring at a silent screen. Skipped after a
+      // deliberate barge-in — they chose to stop listening.
+      if (!spoke && completeStep && !bargedInRef.current) {
+        const textToSpeak = completeStep.spokenQuestion || completeStep.nextQuestion;
+        if (textToSpeak) {
+          setVoiceState('speaking');
+          await fallbackTTS(textToSpeak);
+        }
+      }
+
+      // Only step DOWN from AI-turn states. A barge-in may already have moved
+      // us to 'idle' — and the candidate may even be mid-submit ('evaluating'),
+      // which must not be clobbered back to idle.
+      setVoiceState((v) => (v === 'preparing' || v === 'speaking' || v === 'reminder' ? 'idle' : v));
+
+      if (streamError && !completeStep) {
+        throw streamError;
+      }
       if (!completeStep) {
         const e: any = new Error('interview stream ended before completion'); e.incomplete = true; throw e;
       }
@@ -562,10 +663,16 @@ export default function InterviewPortal() {
   };
 
   const attemptTurnWithRetry = async (answer: string, requestId: string, attempt: number): Promise<void> => {
+    manualEvalRetryRef.current = false;
+    bargedInRef.current = false;
     setVoiceState('evaluating');
     try {
       const result = await runTurn(answer, requestId);
-      pendingTurnRef.current = null;
+      // A barge-in lets the candidate submit the NEXT turn while this one is
+      // still draining — only clear the pending ref if it's still ours.
+      if (pendingTurnRef.current?.requestId === requestId) {
+        pendingTurnRef.current = null;
+      }
       setTurnError(null);
       if (result === 'end') {
         goThankYou('submitted');
@@ -576,8 +683,12 @@ export default function InterviewPortal() {
         showPortalError('expired');
         return;
       }
+      // 4.4 — the candidate hit "retry" on a stuck evaluation: the abort landed
+      // here. Re-send immediately with the same answer + requestId (idempotent
+      // server-side), resetting the attempt budget since this was user-driven.
+      const wasManualRetry = manualEvalRetryRef.current;
       // 5.13 — truncated stream: offer a retry WITHOUT advancing the turn.
-      if (e?.incomplete) {
+      if (e?.incomplete && !wasManualRetry) {
         setVoiceState('idle');
         setTurnError({ kind: 'truncated' });
         return;
@@ -585,9 +696,9 @@ export default function InterviewPortal() {
       // 5.5 — genuine network/5xx: keep the answer, auto-retry (1x, 2x) with the
       // SAME answer + requestId. Only surface a manual retry once exhausted.
       console.error("Evaluation failed", e);
-      if (attempt < 2 && (typeof navigator === 'undefined' || navigator.onLine)) {
-        await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
-        return attemptTurnWithRetry(answer, requestId, attempt + 1);
+      if ((wasManualRetry || attempt < 2) && (typeof navigator === 'undefined' || navigator.onLine)) {
+        await new Promise(r => setTimeout(r, wasManualRetry ? 300 : 1200 * (attempt + 1)));
+        return attemptTurnWithRetry(answer, requestId, wasManualRetry ? 0 : attempt + 1);
       }
       setVoiceState('idle');
       setTurnError({ kind: 'network' });
@@ -607,6 +718,17 @@ export default function InterviewPortal() {
     setTurnError(null);
     attemptTurnWithRetry(pending.answer, pending.requestId, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceState]);
+
+  // 4.4 — soft retry surfaced by the stuck-turn watchdog (~15s stuck on
+  // evaluating OR preparing). Aborting the in-flight request routes control
+  // into attemptTurnWithRetry's catch, which re-sends the same answer +
+  // requestId right away. (Aborting also unblocks a stalled TTS pipeline: the
+  // body read rejects, the sentence queue closes, playback ends.)
+  const handleEvaluatingRetry = useCallback(() => {
+    if (voiceState !== 'evaluating' && voiceState !== 'preparing') return;
+    manualEvalRetryRef.current = true;
+    turnAbortRef.current?.abort();
   }, [voiceState]);
 
   // ---- Connectivity listeners + reconnect auto-retry (5.14) ------------------
@@ -678,7 +800,10 @@ export default function InterviewPortal() {
             'X-Session-Id': id,
             'X-Interview-Token': token,
           },
-          body: JSON.stringify({ sessionId: id, language })
+          body: JSON.stringify({ sessionId: id, language }),
+          // Without the signal the 15s timeout above is dead code and a hung
+          // request spins "Connecting" forever.
+          signal: controller.signal,
         });
       } finally {
         clearTimeout(to);
@@ -775,18 +900,31 @@ export default function InterviewPortal() {
     await unlockAudio();
     warmupTTS();
 
+    // Without a recorded question, resuming used to land on a dead screen: no
+    // caption, no audio, and (since the mic only auto-starts after AI speech)
+    // no way forward. Fall back to a spoken re-engagement prompt.
+    const resumeSpeech = resumeQuestion || (isZh
+      ? '欢迎回来，我们接着继续。请就上一个话题继续作答，或者告诉我你准备好了。'
+      : "Welcome back — let's continue. Pick up where you left off, or just tell me you're ready.");
+
+    // Restore the elapsed timer from transcript timestamps instead of
+    // restarting at 0:00 (elapsed ≈ span of the recorded conversation).
+    const turns = (session.transcript || []) as any[];
+    const ts = turns
+      .map((t) => Number(t?.timestamp))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const elapsedBase = ts.length >= 2 ? Math.max(0, Math.max(...ts) - Math.min(...ts)) : 0;
+
     setInterviewPhase(resumePhase);
     setCurrentTurnType(resumePhase === 'INTRO' ? 'intro' : 'main');
     setCurrentQuestionId(crypto.randomUUID());
     setCurrentRequestId(crypto.randomUUID());
-    setCurrentQuestion(resumeQuestion);
-    setSessionStartTime(Date.now());
+    setCurrentQuestion(resumeSpeech);
+    setSessionStartTime(Date.now() - elapsedBase);
     setAppState('INTERVIEWING');
     setResumeLoading(false);
 
-    if (resumeQuestion) {
-      await speakQuestion(resumeQuestion);
-    }
+    await speakQuestion(resumeSpeech);
   };
 
   const handleEndSession = async () => {
@@ -882,7 +1020,9 @@ export default function InterviewPortal() {
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary/20 rounded-full blur-[100px] animate-pulse"></div>
         </div>
         <Loader2 size={40} className="animate-spin text-primary relative z-10 mb-4" />
-        <div className="text-white/70 tracking-[0.2em] text-sm uppercase relative z-10">Initializing Aura</div>
+        <div className="text-white/70 tracking-[0.2em] text-sm uppercase relative z-10">
+          {isZh ? '正在初始化 AURA' : 'Initializing Aura'}
+        </div>
       </div>
     );
   }
@@ -961,7 +1101,7 @@ export default function InterviewPortal() {
         {/* Header */}
         <header className="px-8 py-6 flex justify-between items-center relative z-10">
           <div className="text-2xl font-bold font-display tracking-tight aura-gradient-text">AURA</div>
-          <div className="text-xs uppercase tracking-[0.2em] text-white/50">Interview Platform</div>
+          <div className="text-xs uppercase tracking-[0.2em] text-white/50">{isZh ? '智能面试平台' : 'Interview Platform'}</div>
         </header>
 
         {/* Main Content */}
@@ -974,11 +1114,14 @@ export default function InterviewPortal() {
               <div className="space-y-10">
                 <div>
                   <h1 className="text-4xl md:text-5xl lg:text-6xl tracking-tight font-bold font-display text-white mb-6 leading-[1.1]">
-                    Welcome to your <br />
-                    <span className="aura-gradient-text">Aura Session</span>
+                    {isZh ? <>欢迎来到你的 <br /><span className="aura-gradient-text">AURA 面试</span></> : <>Welcome to your <br /><span className="aura-gradient-text">Aura Session</span></>}
                   </h1>
                   <p className="text-lg text-white/70 leading-relaxed font-light">
-                    You're interviewing for the <strong className="text-white font-medium">{session.jobRoleContext || 'Developer'}</strong> role. This AI-guided session is designed to explore your experience dynamically.
+                    {isZh ? (
+                      <>你正在参加 <strong className="text-white font-medium">{session.jobRoleContext || '开发工程师'}</strong> 岗位的面试。这是一场由 AI 引导的对话，会围绕你的真实经历动态展开。</>
+                    ) : (
+                      <>You're interviewing for the <strong className="text-white font-medium">{session.jobRoleContext || 'Developer'}</strong> role. This AI-guided session is designed to explore your experience dynamically.</>
+                    )}
                   </p>
                 </div>
 
@@ -988,8 +1131,10 @@ export default function InterviewPortal() {
                       <Check size={14} className="text-primary" strokeWidth={3} />
                     </div>
                     <div>
-                      <strong className="text-white font-medium block text-lg mb-1">Pace yourself</strong>
-                      <span className="text-sm text-white/60 leading-relaxed block">Take your time to understand each question before responding naturally.</span>
+                      <strong className="text-white font-medium block text-lg mb-1">{isZh ? '从容作答' : 'Pace yourself'}</strong>
+                      <span className="text-sm text-white/60 leading-relaxed block">
+                        {isZh ? '不用着急，先听清每个问题，再像日常交流一样自然地回答。' : 'Take your time to understand each question before responding naturally.'}
+                      </span>
                     </div>
                   </li>
                   <li className="flex items-start gap-5 group">
@@ -997,8 +1142,10 @@ export default function InterviewPortal() {
                       <Check size={14} className="text-primary" strokeWidth={3} />
                     </div>
                     <div>
-                      <strong className="text-white font-medium block text-lg mb-1">~{estimatedMinutes} Minutes</strong>
-                      <span className="text-sm text-white/60 leading-relaxed block">We'll discuss your background and {session.claims.length} specific experiences.</span>
+                      <strong className="text-white font-medium block text-lg mb-1">{isZh ? `约 ${estimatedMinutes} 分钟` : `~${estimatedMinutes} Minutes`}</strong>
+                      <span className="text-sm text-white/60 leading-relaxed block">
+                        {isZh ? `我们会聊到你的背景和 ${session.claims.length} 段具体经历。` : `We'll discuss your background and ${session.claims.length} specific experiences.`}
+                      </span>
                     </div>
                   </li>
                 </ul>
@@ -1009,7 +1156,7 @@ export default function InterviewPortal() {
                 <div className="absolute top-0 left-0 right-0 h-[1px] aura-gradient opacity-50"></div>
 
                 <div className="flex justify-between items-center mb-8">
-                  <h3 className="text-xl font-medium font-display tracking-wide text-white">System Check</h3>
+                  <h3 className="text-xl font-medium font-display tracking-wide text-white">{isZh ? '系统检查' : 'System Check'}</h3>
                   <div className="flex items-center gap-3">
                     <select
                       value={language}
@@ -1030,7 +1177,7 @@ export default function InterviewPortal() {
                         <CameraIcon size={18} />
                       </div>
                       <div>
-                        <div className={`font-medium ${cameraCheck === 'completed' && !cameraAvailable ? 'text-white/50' : 'text-white'}`}>Camera</div>
+                        <div className={`font-medium ${cameraCheck === 'completed' && !cameraAvailable ? 'text-white/50' : 'text-white'}`}>{isZh ? '摄像头' : 'Camera'}</div>
                         <div className="text-xs text-white/50 mt-0.5">
                           {cameraCheck !== 'completed'
                             ? (isZh ? '可选' : 'Optional')
@@ -1056,7 +1203,7 @@ export default function InterviewPortal() {
                         <Mic size={18} />
                       </div>
                       <div>
-                        <div className="text-white font-medium">Microphone</div>
+                        <div className="text-white font-medium">{isZh ? '麦克风' : 'Microphone'}</div>
                         <div className="text-xs text-white/50 mt-0.5">{isZh ? '必需' : 'Required'}</div>
                       </div>
                     </div>
@@ -1092,7 +1239,7 @@ export default function InterviewPortal() {
                         <Wifi size={18} />
                       </div>
                       <div>
-                        <div className="text-white font-medium">Network</div>
+                        <div className="text-white font-medium">{isZh ? '网络' : 'Network'}</div>
                         <div className="text-xs text-white/50 mt-0.5">
                           {networkCheck === 'completed' && !networkOk
                             ? (isZh ? '连接失败' : 'Connection failed')
@@ -1205,7 +1352,7 @@ export default function InterviewPortal() {
                         </>
                       ) : (
                         <>
-                          <span className="relative z-10">{beginError ? (isZh ? '重试开始' : 'Retry start') : 'Begin Session'}</span>
+                          <span className="relative z-10">{beginError ? (isZh ? '重试开始' : 'Retry start') : (isZh ? '开始面试' : 'Begin Session')}</span>
                           <ArrowRight size={18} className="relative z-10 group-hover:translate-x-1 transition-transform" />
                         </>
                       )}
@@ -1243,6 +1390,9 @@ export default function InterviewPortal() {
           onSilenceTimeout={handleSilenceTimeout}
           onBargeIn={handleBargeIn}
           onEndSession={handleEndSession}
+          onEvaluatingRetry={handleEvaluatingRetry}
+          onReplayQuestion={handleReplayQuestion}
+          turnErrorActive={!!turnError}
           language={language}
           elapsedMs={elapsedMs}
           claimIndex={memory ? memory.getCurrentClaimIndex() : 0}
@@ -1279,8 +1429,8 @@ export default function InterviewPortal() {
               <AlertTriangle size={16} className="flex-shrink-0" />
               <span className="flex-1">
                 {turnError.kind === 'truncated'
-                  ? (isZh ? '回复被截断' : 'Response was cut off')
-                  : (isZh ? '连接中断' : 'Connection interrupted')}
+                  ? (isZh ? '回复被截断 — 你的回答已保留' : 'Response was cut off — your answer is saved')
+                  : (isZh ? '连接中断 — 你的回答已保留' : 'Connection interrupted — your answer is saved')}
               </span>
               <button
                 onClick={retryPendingTurn}

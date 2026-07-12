@@ -80,7 +80,7 @@ export default function ThankYouScreen() {
             </p>
             <p className="text-sm text-white/50 leading-relaxed">
               {t(
-                '你的回答已成功提交,正在分析中。我们的招聘团队会审阅你的表现并就后续步骤与你联系。你现在可以关闭此窗口。',
+                '你的回答已成功提交，正在分析中。我们的招聘团队会审阅你的表现并就后续步骤与你联系。你现在可以关闭此窗口。',
                 'Your responses have been successfully submitted and are being analyzed. Our recruitment team will review your profile and be in touch regarding next steps. You may now close this window.'
               )}
             </p>
