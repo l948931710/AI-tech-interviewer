@@ -334,6 +334,29 @@ describe('InterviewMemory — Counter Tracking', () => {
     expect(mem.getRepeatCountForQuestion('q-1')).toBe(1); // 2 appearances - 1
   });
 
+  it('getTrailingRepeatCount counts consecutive tail repeats even across rotated questionIds', () => {
+    expect(mem.getTrailingRepeatCount()).toBe(0); // no turns yet
+
+    mem.addTurnToCurrentClaim('Q1', 'A1', 'main', 'q-1');
+    mem.updateLatestTurnEvaluation(makeEval({ decision: 'REPEAT_QUESTION' }));
+    expect(mem.getTrailingRepeatCount()).toBe(0); // 'main' turn, repeat not recorded yet
+
+    // The repeat turn lands with a ROTATED questionId (what the client used to do).
+    mem.addTurnToCurrentClaim('Q1', 'still unclear', 'repeat', 'q-1-rotated');
+    mem.updateLatestTurnEvaluation(makeEval({ decision: 'REPEAT_QUESTION' }));
+    expect(mem.getRepeatCountForQuestion('q-1-rotated')).toBe(0); // id-based guard is blind here
+    expect(mem.getTrailingRepeatCount()).toBe(1); // streak-based guard still sees the repeat
+  });
+
+  it('getTrailingRepeatCount resets once a non-repeat turn follows', () => {
+    mem.addTurnToCurrentClaim('Q1', 'A1', 'repeat', 'q-1');
+    mem.updateLatestTurnEvaluation(makeEval({ decision: 'FOLLOW_UP' }));
+    mem.addTurnToCurrentClaim('Q2', 'A2', 'follow_up', 'q-2');
+    mem.updateLatestTurnEvaluation(makeEval({ decision: 'FOLLOW_UP' }));
+
+    expect(mem.getTrailingRepeatCount()).toBe(0);
+  });
+
   it('isInterviewEnded set to true on END_INTERVIEW decision', () => {
     mem.addTurnToCurrentClaim('Q1', 'A1', 'main', 'q-1');
     mem.updateLatestTurnEvaluation(makeEval({ decision: 'END_INTERVIEW' }));

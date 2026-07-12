@@ -343,6 +343,21 @@ export class InterviewMemory {
     return this.getCurrentClaimState()?.consecutiveNonAnswers || 0;
   }
 
+  /**
+   * Consecutive 'repeat' turns at the tail of the current claim. Guards the
+   * repeat-once rule even when the client rotates questionIds between turns
+   * (which makes getRepeatCountForQuestion() blind to repeats).
+   */
+  public getTrailingRepeatCount(): number {
+    const turns = this.getCurrentClaimState()?.turns || [];
+    let count = 0;
+    for (let i = turns.length - 1; i >= 0; i--) {
+      if (turns[i].turnType === 'repeat') count++;
+      else break;
+    }
+    return count;
+  }
+
   public getPreviousTurnContext(): { 
     answerStatus: string | null; 
     missingPoints: string[]; 

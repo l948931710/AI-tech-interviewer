@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectNonAnswer, applyDecisionOverrides, NonAnswerContext, OverrideContext } from '../../api/agent/decision-engine';
+import { detectNonAnswer, applyDecisionOverrides, buildDecisionRules, NonAnswerContext, OverrideContext, DecisionRulesContext } from '../../api/agent/decision-engine';
 import { CLAIM_A, CLAIM_B, CLAIM_C } from '../fixtures/claims';
 
 // ---------------------------------------------------------------------------
@@ -126,6 +126,38 @@ describe('detectNonAnswer — Pattern Matching', () => {
     const result = detectNonAnswer('  不知道  ', makeNonAnswerCtx());
     expect(result).not.toBeNull();
   });
+
+  it('detects non-answer with trailing ASR punctuation: 不知道。', () => {
+    const result = detectNonAnswer('不知道。', makeNonAnswerCtx());
+    expect(result).not.toBeNull();
+    expect(result!.answerStatus).toBe('non_answer');
+  });
+
+  it('detects non-answer with trailing ellipsis: "not sure..."', () => {
+    const result = detectNonAnswer('not sure...', makeNonAnswerCtx({ language: 'en-US' }));
+    expect(result).not.toBeNull();
+  });
+
+  it('does NOT match punctuation-only input', () => {
+    const result = detectNonAnswer('。。。', makeNonAnswerCtx());
+    expect(result).toBeNull();
+  });
+
+  it('detects the zh auto-skip marker despite not matching the phrase list', () => {
+    const result = detectNonAnswer('（候选人长时间未作答，跳过此问题）', makeNonAnswerCtx());
+    expect(result).not.toBeNull();
+    expect(result!.answerStatus).toBe('non_answer');
+    expect(result!.decision).toBe('FOLLOW_UP'); // first skip → gentle retry
+  });
+
+  it('detects the en auto-skip marker even though it is >= 30 chars', () => {
+    const result = detectNonAnswer(
+      '(Candidate did not answer for a long time, skipping question)',
+      makeNonAnswerCtx({ language: 'en-US' })
+    );
+    expect(result).not.toBeNull();
+    expect(result!.answerStatus).toBe('non_answer');
+  });
 });
 
 // ===========================================================================
@@ -199,6 +231,25 @@ describe('detectNonAnswer — Decision Branching', () => {
     }));
     expect(result!.missingPoints).toEqual(['Point B', 'Point C']);
     expect(result!.coveredPoints).toEqual(['Point A']);
+  });
+
+  it('forceNextClaim skips the gentle-retry branch even on a FIRST non-answer', () => {
+    const result = detectNonAnswer('不知道', makeNonAnswerCtx({
+      consecutiveNonAnswers: 0,
+      forceNextClaim: true,
+      nextClaim: CLAIM_B,
+    }));
+    expect(result!.decision).toBe('NEXT_CLAIM'); // depth budget spent — no more retries here
+  });
+
+  it('forceNextClaim with no next claim → END_INTERVIEW on a first non-answer', () => {
+    const result = detectNonAnswer('pass', makeNonAnswerCtx({
+      consecutiveNonAnswers: 0,
+      forceNextClaim: true,
+      nextClaim: null,
+      language: 'en-US',
+    }));
+    expect(result!.decision).toBe('END_INTERVIEW');
   });
 });
 
@@ -452,6 +503,26 @@ describe('applyDecisionOverrides — Text Generation', () => {
     applyDecisionOverrides(parsed, ctx);
     expect(parsed.nextQuestion).toContain('技术细节');
   });
+
+  it('FOLLOW_UP override targets the first missing must-verify point when one is known', () => {
+    const parsed = makeParsed({
+      answerStatus: 'answered',
+      decision: 'NEXT_CLAIM',
+      coveredPoints: [],
+      missingPoints: ['rollback strategy', 'team size'],
+    });
+    const ctx = makeOverrideCtx({
+      totalQuestionsAskedForCurrentClaim: 1,
+      minQuestionsPerClaim: 2,
+      forceNextClaim: false,
+      currentClaimMustVerify: ['rollback strategy', 'team size'],
+      language: 'en-US',
+    });
+    applyDecisionOverrides(parsed, ctx);
+    expect(parsed.decision).toBe('FOLLOW_UP');
+    expect(parsed.nextQuestion).toContain('rollback strategy');
+    expect(parsed.spokenQuestion).toBe(parsed.nextQuestion);
+  });
 });
 
 // ===========================================================================
@@ -521,6 +592,19 @@ describe('applyDecisionOverrides — Point Sanitization', () => {
     expect(parsed.coveredPoints).toEqual([]);
     expect(parsed.missingPoints).toEqual([]);
   });
+
+  it('missingPoints cannot resurrect points covered on EARLIER turns', () => {
+    const parsed = makeParsed({
+      coveredPoints: [],                    // LLM forgot Point A was covered before...
+      missingPoints: ['Point A', 'Point B'], // ...and lists it as missing again
+    });
+    const ctx = makeOverrideCtx({
+      currentClaimMustVerify: ['Point A', 'Point B'],
+      previouslyCoveredPoints: ['Point A'],
+    });
+    applyDecisionOverrides(parsed, ctx);
+    expect(parsed.missingPoints).toEqual(['Point B']);
+  });
 });
 
 // ===========================================================================
@@ -551,5 +635,69 @@ describe('applyDecisionOverrides — Precedence', () => {
     });
     applyDecisionOverrides(parsed, ctx);
     expect(parsed.decision).toBe('NEXT_CLAIM');
+  });
+});
+
+// ===========================================================================
+// 13. buildDecisionRules — prompt-side mirror of the override ladder
+// ===========================================================================
+describe('buildDecisionRules', () => {
+  function makeRulesCtx(overrides: Partial<DecisionRulesContext> = {}): DecisionRulesContext {
+    return {
+      forceNextClaim: false,
+      hasNextClaim: true,
+      repeatCountForCurrentQuestion: 0,
+      consecutiveNonAnswers: 0,
+      totalQuestionsAskedForCurrentClaim: 3,
+      minQuestionsPerClaim: 2,
+      followUpCountForCurrentClaim: 1,
+      maxFollowUpsPerClaim: 2,
+      hardLimitFollowUps: 3,
+      ...overrides,
+    };
+  }
+
+  it('forceNextClaim + next claim → mandates NEXT_CLAIM with a transition', () => {
+    const rules = buildDecisionRules(makeRulesCtx({ forceNextClaim: true, hasNextClaim: true }));
+    expect(rules).toContain('MUST decide NEXT_CLAIM');
+    expect(rules).not.toContain('FOLLOW_UP:');
+  });
+
+  it('forceNextClaim + no next claim → mandates END_INTERVIEW with a closing statement', () => {
+    const rules = buildDecisionRules(makeRulesCtx({ forceNextClaim: true, hasNextClaim: false }));
+    expect(rules).toContain('MUST decide END_INTERVIEW');
+    expect(rules).toContain('closing statement');
+  });
+
+  it('mirrors Rule 4: below the min-question floor, forbids leaving the claim', () => {
+    const rules = buildDecisionRules(makeRulesCtx({ totalQuestionsAskedForCurrentClaim: 1 }));
+    expect(rules).toContain('Do NOT choose NEXT_CLAIM or END_INTERVIEW yet');
+  });
+
+  it('mirrors Rule 5: at the follow-up cap, allows one more only for missing points', () => {
+    const rules = buildDecisionRules(makeRulesCtx({ followUpCountForCurrentClaim: 2 }));
+    expect(rules).toContain('ONLY if a Must-Verify point is still missing');
+  });
+
+  it('mid-claim: allows adaptive advancement once coverage is achieved', () => {
+    const rules = buildDecisionRules(makeRulesCtx());
+    expect(rules).toContain('If all Must-Verify points are covered');
+    expect(rules).toContain('decide NEXT_CLAIM');
+  });
+
+  it('adaptive advancement points at END_INTERVIEW on the last claim', () => {
+    const rules = buildDecisionRules(makeRulesCtx({ hasNextClaim: false }));
+    expect(rules).toContain('never output NEXT_CLAIM');
+    expect(rules).toContain('decide END_INTERVIEW');
+  });
+
+  it('mirrors Rule 1: forbids a second repeat of the same question', () => {
+    const rules = buildDecisionRules(makeRulesCtx({ repeatCountForCurrentQuestion: 1 }));
+    expect(rules).toContain('NEVER decide REPEAT_QUESTION');
+  });
+
+  it('mirrors Rule 3: after a prior non-answer, directs away from the claim', () => {
+    const rules = buildDecisionRules(makeRulesCtx({ consecutiveNonAnswers: 1 }));
+    expect(rules).toContain("If answerStatus is 'non_answer': decide NEXT_CLAIM");
   });
 });

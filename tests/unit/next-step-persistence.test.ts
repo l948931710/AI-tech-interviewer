@@ -24,6 +24,10 @@ let dbState: {
 // success, a genuine DB failure, and a 23505 unique_violation (idempotent retry).
 let transcriptInsertResult: { error: any };
 
+// Configurable result for interview_sessions UPDATEs (e.g. the intro → technical
+// phase advance), which supabase reports as a result error rather than a throw.
+let sessionUpdateResult: { error: any };
+
 // Count the rate-limit RPC reports for the current window (<= limit ⇒ allowed).
 let rateLimitCount: number;
 
@@ -103,6 +107,9 @@ function setupMockSupabase() {
     chain.update = vi.fn((updates: any) => {
       const updateChain: any = {};
       updateChain.eq = vi.fn((_col: string, val: any) => {
+        if (table === 'interview_sessions' && sessionUpdateResult.error) {
+          return Promise.resolve(sessionUpdateResult);
+        }
         const session = dbState.sessions[val];
         if (session) Object.assign(session, updates);
         return Promise.resolve({ data: null, error: null });
@@ -150,6 +157,7 @@ beforeEach(() => {
     }],
   };
   transcriptInsertResult = { error: null };
+  sessionUpdateResult = { error: null };
   rateLimitCount = 1;
 
   setupMockSupabase();
@@ -244,6 +252,21 @@ describe('next-step — intro turn durable persistence (C1)', () => {
     // Idempotent: phase still advances even though the row already existed.
     expect(dbState.sessions['sess-1'].phase).toBe('technical');
   });
+
+  it('returns 503 when the phase advance fails after the insert succeeded', async () => {
+    sessionUpdateResult = { error: { code: '08006', message: 'connection failure' } };
+
+    const res = await handler(makeRequest(INTRO_BODY), {});
+    expect(res.status).toBe(503);
+
+    // Phase must remain 'intro' so the retried requestId re-runs the intro
+    // handler: the transcript insert dedupes via 23505 and the update re-runs.
+    // (Previously this error went unchecked and the session got stuck in
+    // 'intro' while the client advanced — duplicating the first question.)
+    const body = await res.json();
+    expect(body.nextQuestion).toBeUndefined();
+    expect(dbState.sessions['sess-1'].phase).toBe('intro');
+  });
 });
 
 // ===========================================================================
@@ -292,5 +315,20 @@ describe('next-step — non-answer fast-path wiring', () => {
     const body = await res.json();
     expect(body.answerStatus).toBe('non_answer');
     expect(body.decision).toBe('FOLLOW_UP'); // first non-answer → CLARIFY, no Gemini call
+  });
+
+  it('the client auto-skip marker resolves deterministically without the LLM', async () => {
+    dbState.sessions['sess-1'].phase = 'technical';
+
+    // The Gemini mock throws if constructed, so a 200 here proves no LLM call.
+    const res = await handler(
+      makeRequest({ ...INTRO_BODY, answer: '（候选人长时间未作答，跳过此问题）' }),
+      {}
+    );
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.answerStatus).toBe('non_answer');
+    expect(body.decision).toBe('FOLLOW_UP'); // first skip → gentle retry, same ladder as spoken non-answers
   });
 });
